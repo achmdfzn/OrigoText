@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, File, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 
@@ -21,6 +23,11 @@ router = APIRouter(prefix="/v1/documents", tags=["documents"])
 _service: DocumentParsingService = build_parsing_service()
 
 _MAX_FILENAME_LENGTH = 255
+UploadDocument = Annotated[
+    UploadFile,
+    File(description=f"Document to parse, at most {MAX_UPLOAD_BYTES} bytes"),
+]
+
 _PROBLEM_CONTENT: dict[str, dict[str, object]] = {PROBLEM_CONTENT_TYPE: {}}
 _PROBLEM_RESPONSES: dict[int | str, dict[str, object]] = {
     400: {"description": "Empty or unreadable document", "content": _PROBLEM_CONTENT},
@@ -90,7 +97,7 @@ def _problem_for(request: Request, error: DocumentError) -> JSONResponse:
 )
 async def create_document(
     request: Request,
-    file: UploadFile = File(description=f"Document to parse, at most {MAX_UPLOAD_BYTES} bytes"),
+    file: UploadDocument,
 ) -> ParseResult | JSONResponse:
     payload = await file.read()
     try:
