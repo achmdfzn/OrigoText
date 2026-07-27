@@ -44,6 +44,7 @@ export interface PlagiarismReport {
   readonly wordCount: number;
   readonly checkedAt: string;
   readonly overallSimilarity: number;
+  readonly riskLevel: RiskLevel;
   readonly sources: ReadonlyArray<SourceMatch>;
   readonly submissionText: string;
 }

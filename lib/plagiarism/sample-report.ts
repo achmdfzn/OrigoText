@@ -1,3 +1,4 @@
+import { riskLevelForSimilarity } from "./scoring";
 import type {
   MatchKind,
   MatchedSpan,
@@ -157,12 +158,14 @@ export function buildSampleReport(): PlagiarismReport {
     (sum, match) => sum + match.matchedWords,
     0,
   );
+  const overall = matchedWords / wordCount;
   return {
     id: "chk_8Q2R7ZK",
     documentTitle: "Advances in Neural Text Generation and Detection.docx",
     wordCount,
     checkedAt: "2026-07-27T09:14:00+07:00",
-    overallSimilarity: matchedWords / wordCount,
+    overallSimilarity: overall,
+    riskLevel: riskLevelForSimilarity(overall),
     sources: sourceMatches,
     submissionText,
   };

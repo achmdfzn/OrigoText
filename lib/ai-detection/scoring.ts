@@ -5,6 +5,10 @@ import type {
   VerdictBand,
 } from "./types";
 
+/**
+ * Thresholds mirror `_verdict` in backend/ai_detection/application/service.py.
+ * Keep both sides in sync when either changes.
+ */
 const VERDICT_BANDS: ReadonlyArray<VerdictBand> = [
   { verdict: "ai", label: "Likely AI-generated", token: "risk-critical", lowerBound: 0.8 },
   { verdict: "likely-ai", label: "Leans AI-generated", token: "risk-high", lowerBound: 0.6 },
@@ -34,6 +38,15 @@ export function verdictBandForProbability(probability: number): VerdictBand {
   const value = clampUnit(probability);
   const band = VERDICT_BANDS.find((candidate) => value >= candidate.lowerBound);
   return band ?? VERDICT_BANDS[VERDICT_BANDS.length - 1];
+}
+
+/**
+ * Prefers the verdict the backend assigned over recomputing it from the
+ * probability, so the label never contradicts the result being rendered.
+ */
+export function verdictBandFor(result: DetectionResult): VerdictBand {
+  const band = VERDICT_BANDS.find((candidate) => candidate.verdict === result.verdict);
+  return band ?? verdictBandForProbability(result.aiProbability);
 }
 
 export function sentenceLabelForProbability(probability: number): {

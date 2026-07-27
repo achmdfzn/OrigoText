@@ -5,13 +5,15 @@ import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 
 interface UploadFormProps {
-  readonly onSubmit: (text: string) => void;
+  readonly onSubmit: (text: string) => void | Promise<void>;
+  /** Message from a failed check, surfaced above the submit button. */
+  readonly error?: string | null;
 }
 
 const MAX_CHARS = 50_000;
 const ACCEPTED = ".pdf,.docx,.txt,.rtf,.odt,.md";
 
-export function UploadForm({ onSubmit }: UploadFormProps) {
+export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
   const [text, setText] = useState("");
   const [dragging, setDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -154,6 +156,15 @@ export function UploadForm({ onSubmit }: UploadFormProps) {
           {remaining.toLocaleString()} characters remaining
         </div>
       </div>
+
+      {error !== null ? (
+        <p
+          role="alert"
+          className="rounded-md border border-danger/40 bg-danger/8 px-4 py-3 text-body-sm text-danger"
+        >
+          {error}
+        </p>
+      ) : null}
 
       <div className="flex items-center justify-between gap-4">
         <p className="text-caption text-fg-muted">

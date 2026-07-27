@@ -1,42 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadForm } from "@/components/plagiarism/UploadForm";
 import { CheckingState } from "@/components/plagiarism/CheckingState";
 import { ReportSummary } from "@/components/plagiarism/ReportSummary";
 import { SourceRankingList } from "@/components/plagiarism/SourceRankingList";
 import { AnnotatedSubmission } from "@/components/plagiarism/AnnotatedSubmission";
-import { buildSampleReport } from "@/lib/plagiarism/sample-report";
+import { checkPlagiarism } from "@/lib/api/client";
+import { userFacingMessage } from "@/lib/api/errors";
 import type { PlagiarismReport } from "@/lib/plagiarism/types";
 
 type PageState =
-  | { stage: "idle" }
+  | { stage: "idle"; error: string | null }
   | { stage: "checking"; documentTitle: string }
   | { stage: "done"; report: PlagiarismReport };
 
-const CHECKING_DURATION_MS = 3800;
+function titleFor(text: string): string {
+  return `Submission — ${text.slice(0, 40).trim()}…`;
+}
 
 export default function PlagiarismPage() {
-  const [pageState, setPageState] = useState<PageState>({ stage: "idle" });
+  const [pageState, setPageState] = useState<PageState>({ stage: "idle", error: null });
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
-  function handleSubmit(text: string) {
+  // Cancel any in-flight check if the user navigates away mid-analysis.
+  useEffect(() => () => requestRef.current?.abort(), []);
+
+  const handleSubmit = useCallback(async (text: string) => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
+
+    const documentTitle = titleFor(text);
     setSelectedSourceId(null);
-    setPageState({
-      stage: "checking",
-      documentTitle: `Submission — ${text.slice(0, 40).trim()}…`,
-    });
-    setTimeout(() => {
-      setPageState({ stage: "done", report: buildSampleReport() });
-    }, CHECKING_DURATION_MS);
-  }
+    setPageState({ stage: "checking", documentTitle });
+
+    try {
+      const report = await checkPlagiarism({ text, documentTitle, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setPageState({ stage: "done", report });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPageState({ stage: "idle", error: userFacingMessage(error) });
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null;
+    }
+  }, []);
 
   function handleReset() {
+    requestRef.current?.abort();
     setSelectedSourceId(null);
-    setPageState({ stage: "idle" });
+    setPageState({ stage: "idle", error: null });
   }
 
-  if (pageState.stage === "idle") return <UploadForm onSubmit={handleSubmit} />;
+  if (pageState.stage === "idle")
+    return <UploadForm onSubmit={handleSubmit} error={pageState.error} />;
 
   if (pageState.stage === "checking")
     return <CheckingState documentTitle={pageState.documentTitle} />;

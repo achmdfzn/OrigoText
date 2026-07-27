@@ -1,3 +1,4 @@
+import { verdictBandForProbability } from "./scoring";
 import type {
   DetectionResult,
   FeatureSignal,
@@ -120,6 +121,7 @@ export function buildSampleResult(): DetectionResult {
     analyzedAt: "2026-07-27T09:22:00+07:00",
     aiProbability,
     confidence: 0.81,
+    verdict: verdictBandForProbability(aiProbability).verdict,
     perplexity: 24.6,
     burstiness: 0.31,
     signals,

@@ -28,6 +28,7 @@ export interface DetectionResult {
   readonly analyzedAt: string;
   readonly aiProbability: number;
   readonly confidence: number;
+  readonly verdict: Verdict;
   readonly perplexity: number;
   readonly burstiness: number;
   readonly signals: ReadonlyArray<FeatureSignal>;

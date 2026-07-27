@@ -1,45 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DetectorInput } from "@/components/ai-detector/DetectorInput";
 import { DetectorChecking } from "@/components/ai-detector/DetectorChecking";
 import { DetectorSummary } from "@/components/ai-detector/DetectorSummary";
 import { DetectorSignals } from "@/components/ai-detector/DetectorSignals";
 import { SentenceBreakdown } from "@/components/ai-detector/SentenceBreakdown";
+import { detectAiText } from "@/lib/api/client";
+import { userFacingMessage } from "@/lib/api/errors";
 import { buildSampleResult } from "@/lib/ai-detection/sample-result";
 import type { DetectionResult } from "@/lib/ai-detection/types";
 
 type PageState =
-  | { stage: "idle" }
+  | { stage: "idle"; error: string | null }
   | { stage: "checking"; documentTitle: string }
   | { stage: "done"; result: DetectionResult };
 
-const CHECKING_DURATION_MS = 3800;
-
 export default function AiDetectorPage() {
-  const [pageState, setPageState] = useState<PageState>({ stage: "idle" });
+  const [pageState, setPageState] = useState<PageState>({ stage: "idle", error: null });
+  const requestRef = useRef<AbortController | null>(null);
 
-  function runAnalysis(title: string) {
-    setPageState({ stage: "checking", documentTitle: title });
-    setTimeout(() => {
-      setPageState({ stage: "done", result: buildSampleResult() });
-    }, CHECKING_DURATION_MS);
-  }
+  // Cancel any in-flight analysis if the user navigates away mid-request.
+  useEffect(() => () => requestRef.current?.abort(), []);
 
-  function handleSubmit(text: string) {
-    runAnalysis(`Submission — ${text.slice(0, 40).trim()}…`);
-  }
+  const handleSubmit = useCallback(async (text: string) => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
 
+    const documentTitle = `Submission — ${text.slice(0, 40).trim()}…`;
+    setPageState({ stage: "checking", documentTitle });
+
+    try {
+      const result = await detectAiText({ text, documentTitle, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setPageState({ stage: "done", result });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setPageState({ stage: "idle", error: userFacingMessage(error) });
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null;
+    }
+  }, []);
+
+  // The sample stays local so the walkthrough works without a running backend.
   function handleUseSample() {
-    runAnalysis("Advances in Neural Text Generation and Detection.docx");
+    requestRef.current?.abort();
+    setPageState({ stage: "done", result: buildSampleResult() });
   }
 
   function handleReset() {
-    setPageState({ stage: "idle" });
+    requestRef.current?.abort();
+    setPageState({ stage: "idle", error: null });
   }
 
   if (pageState.stage === "idle")
-    return <DetectorInput onSubmit={handleSubmit} onUseSample={handleUseSample} />;
+    return (
+      <DetectorInput
+        onSubmit={handleSubmit}
+        onUseSample={handleUseSample}
+        error={pageState.error}
+      />
+    );
 
   if (pageState.stage === "checking")
     return <DetectorChecking documentTitle={pageState.documentTitle} />;

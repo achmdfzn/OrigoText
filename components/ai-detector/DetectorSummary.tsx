@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import {
   humanLikelihood,
   toPercent,
+  verdictBandFor,
   verdictBandForProbability,
 } from "@/lib/ai-detection/scoring";
 import type { DetectionResult } from "@/lib/ai-detection/types";
@@ -114,7 +115,7 @@ interface DetectorSummaryProps {
 
 export function DetectorSummary({ result, className }: DetectorSummaryProps) {
   const human = humanLikelihood(result);
-  const band = verdictBandForProbability(result.aiProbability);
+  const band = verdictBandFor(result);
   const analyzedAt = new Date(result.analyzedAt).toLocaleString("en-US", {
     dateStyle: "medium",
     timeStyle: "short",

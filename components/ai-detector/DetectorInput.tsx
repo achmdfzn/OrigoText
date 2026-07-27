@@ -5,13 +5,19 @@ import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 
 interface DetectorInputProps {
-  readonly onSubmit: (text: string) => void;
+  readonly onSubmit: (text: string) => void | Promise<void>;
   readonly onUseSample: () => void;
+  /** Message from a failed analysis, surfaced above the submit button. */
+  readonly error?: string | null;
 }
 
 const MAX_CHARS = 50_000;
 
-export function DetectorInput({ onSubmit, onUseSample }: DetectorInputProps) {
+export function DetectorInput({
+  onSubmit,
+  onUseSample,
+  error = null,
+}: DetectorInputProps) {
   const [text, setText] = useState("");
 
   const remaining = MAX_CHARS - text.length;
@@ -57,6 +63,15 @@ export function DetectorInput({ onSubmit, onUseSample }: DetectorInputProps) {
           {remaining.toLocaleString()} characters remaining
         </div>
       </div>
+
+      {error !== null ? (
+        <p
+          role="alert"
+          className="rounded-md border border-danger/40 bg-danger/8 px-4 py-3 text-body-sm text-danger"
+        >
+          {error}
+        </p>
+      ) : null}
 
       <div className="flex items-center justify-between gap-4">
         <button
