@@ -10,7 +10,9 @@ from document.domain.errors import (
     UnsupportedFormatError,
 )
 from document.domain.models import DocumentFormat, SectionKind
+from document.infrastructure.detection import ContentSniffingDetector
 from document.infrastructure.factory import build_parsing_service
+from document.infrastructure.text_extractors import PlainTextExtractor
 from tests.fixtures import PARAGRAPHS, docx_bytes, odt_bytes, pdf_bytes, scanned_pdf_bytes
 
 
@@ -134,11 +136,17 @@ async def test_scanned_pdf_reports_no_extractable_text(service: DocumentParsingS
 
 async def test_truncates_text_beyond_limit() -> None:
     service = DocumentParsingService(
-        detector=build_parsing_service()._detector,
-        extractors=[],
-        max_text_characters=100,
+        detector=ContentSniffingDetector(),
+        extractors=[PlainTextExtractor()],
+        max_text_characters=120,
     )
-    del service
+    payload = ("Sentence about detection methodology. " * 30).encode()
+
+    result = await service.parse(payload, "long.txt")
+
+    assert result.truncated is True
+    assert result.character_count == 120
+    assert any("truncated" in warning for warning in result.warnings)
 
 
 async def test_chunks_stay_within_section_offsets(service: DocumentParsingService) -> None:

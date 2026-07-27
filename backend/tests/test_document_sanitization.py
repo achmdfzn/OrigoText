@@ -18,7 +18,7 @@ def test_strips_chatml_role_markers() -> None:
 
 def test_strips_role_tags_and_llama_instruction_markers() -> None:
     stripped, count = strip_tool_control_tokens("[INST] do this [/INST] <system>x</system>")
-    assert count == 3
+    assert count == 4
     assert "[INST]" not in stripped
     assert "<system>" not in stripped
 
