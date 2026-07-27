@@ -177,3 +177,63 @@ export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
           </div>
         ) : null}
       </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="submission-text" className="text-body-sm font-medium text-fg">
+          Or paste text directly
+        </label>
+        <textarea
+          id="submission-text"
+          value={text}
+          onChange={(event) => setText(event.target.value.slice(0, MAX_CHARS))}
+          rows={12}
+          placeholder="Paste your essay, paper, or article here…"
+          className={cn(
+            "w-full resize-y rounded-md border border-border bg-bg px-4 py-3",
+            "font-sans text-body text-fg placeholder:text-fg-muted",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            "transition-colors duration-150",
+          )}
+          aria-describedby="char-count"
+        />
+        <div
+          id="char-count"
+          className={cn(
+            "text-right text-caption",
+            remaining < 1000 ? "text-warning" : "text-fg-muted",
+          )}
+        >
+          {remaining.toLocaleString()} characters remaining
+        </div>
+      </div>
+
+      {error !== null ? (
+        <p
+          role="alert"
+          className="rounded-md border border-danger/40 bg-danger/8 px-4 py-3 text-body-sm text-danger"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-caption text-fg-muted">
+          Minimum {MIN_CHARS} characters required.
+        </p>
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={() => void onSubmit(text.trim())}
+          className={cn(
+            "rounded-md px-5 py-2.5 text-body-sm font-medium transition-colors duration-150",
+            canSubmit
+              ? "bg-accent text-white hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              : "cursor-not-allowed bg-bg-muted text-fg-muted",
+          )}
+        >
+          Check for plagiarism
+        </button>
+      </div>
+    </Card>
+  );
+}
