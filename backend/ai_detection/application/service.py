@@ -47,7 +47,7 @@ def _sentence_length_variance(sentences: list[str]) -> float:
     if len(lengths) < 2:
         return 0.0
     mean = sum(lengths) / len(lengths)
-    variance = sum((l - mean) ** 2 for l in lengths) / len(lengths)
+    variance = sum((length - mean) ** 2 for length in lengths) / len(lengths)
     return math.sqrt(variance)
 
 

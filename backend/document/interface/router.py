@@ -21,11 +21,11 @@ router = APIRouter(prefix="/v1/documents", tags=["documents"])
 _service: DocumentParsingService = build_parsing_service()
 
 _MAX_FILENAME_LENGTH = 255
-_PROBLEM_RESPONSES: dict[int | str, dict[str, str]] = {
-    400: {"description": "Empty file or unreadable document"},
-    413: {"description": "File exceeds the upload size limit"},
-    415: {"description": "Unsupported or undetectable document format"},
-    422: {"description": "No extractable text (may require OCR)"},
+_PROBLEM_RESPONSES: dict[int | str, dict[str, object]] = {
+    400: {"description": "Empty file or unreadable document", "content": {PROBLEM_CONTENT_TYPE: {}}},
+    413: {"description": "File exceeds the upload size limit", "content": {PROBLEM_CONTENT_TYPE: {}}},
+    415: {"description": "Unsupported document format", "content": {PROBLEM_CONTENT_TYPE: {}}},
+    422: {"description": "No extractable text (may require OCR)", "content": {PROBLEM_CONTENT_TYPE: {}}},
 }
 
 
@@ -78,3 +78,23 @@ def _problem_for(request: Request, error: DocumentError) -> JSONResponse:
         status=status.HTTP_400_BAD_REQUEST,
         detail=str(error),
     )
+
+
+@router.post(
+    "",
+    response_model=ParseResult,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload and parse a document into structured, sanitized text",
+    responses=_PROBLEM_RESPONSES,
+)
+async def create_document(
+    request: Request,
+    file: UploadFile = File(description=f"Document to parse, at most {MAX_UPLOAD_BYTES} bytes"),
+) -> ParseResult | JSONResponse:
+    payload = await file.read()
+    try:
+        return await _service.parse(payload=payload, filename=_safe_filename(file))
+    except DocumentError as error:
+        return _problem_for(request, error)
+    finally:
+        await file.close()

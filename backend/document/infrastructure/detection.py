@@ -22,6 +22,15 @@ _EXTENSION_FORMATS: dict[str, DocumentFormat] = {
     "epub": DocumentFormat.EPUB,
 }
 
+_CONTAINER_FORMATS = frozenset(
+    {
+        DocumentFormat.PDF,
+        DocumentFormat.DOCX,
+        DocumentFormat.ODT,
+        DocumentFormat.EPUB,
+    }
+)
+
 _ZIP_ENTRY_FORMATS: list[tuple[str, DocumentFormat]] = [
     ("word/document.xml", DocumentFormat.DOCX),
     ("content.xml", DocumentFormat.ODT),
@@ -79,7 +88,7 @@ class ContentSniffingDetector(FormatDetectorPort):
         extension = _extension_of(filename)
         declared = _EXTENSION_FORMATS.get(extension)
 
-        if declared in {DocumentFormat.PDF, DocumentFormat.DOCX, DocumentFormat.ODT, DocumentFormat.EPUB}:
+        if declared in _CONTAINER_FORMATS:
             return None
 
         if declared is not None:

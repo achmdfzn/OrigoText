@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_detection.interface.router import router as ai_detection_router
+from document.interface.router import router as document_router
 from plagiarism.interface.router import router as plagiarism_router
 
 app = FastAPI(
@@ -19,6 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(document_router)
 app.include_router(plagiarism_router)
 app.include_router(ai_detection_router)
 
