@@ -105,3 +105,66 @@ export interface WireValidationError {
     readonly type: string;
   }>;
 }
+
+export type WireDocumentFormat =
+  | "pdf"
+  | "docx"
+  | "txt"
+  | "rtf"
+  | "odt"
+  | "html"
+  | "markdown"
+  | "latex"
+  | "epub";
+
+export type WireSectionKind = "title" | "abstract" | "heading" | "body" | "references";
+
+export interface WireDocumentSection {
+  readonly id: string;
+  readonly kind: WireSectionKind;
+  readonly heading: string | null;
+  readonly text: string;
+  readonly start_offset: number;
+  readonly end_offset: number;
+}
+
+export interface WireDocumentChunk {
+  readonly id: string;
+  readonly section_id: string;
+  readonly text: string;
+  readonly start_offset: number;
+  readonly end_offset: number;
+  readonly word_count: number;
+}
+
+export interface WireDocumentMetadata {
+  readonly title: string | null;
+  readonly authors: ReadonlyArray<string>;
+  readonly page_count: number | null;
+  readonly language: string | null;
+}
+
+export interface WireParseResult {
+  readonly id: string;
+  readonly filename: string;
+  readonly document_format: WireDocumentFormat;
+  readonly byte_size: number;
+  readonly parsed_at: string;
+  readonly metadata: WireDocumentMetadata;
+  readonly text: string;
+  readonly word_count: number;
+  readonly character_count: number;
+  readonly sections: ReadonlyArray<WireDocumentSection>;
+  readonly chunks: ReadonlyArray<WireDocumentChunk>;
+  readonly truncated: boolean;
+  readonly warnings: ReadonlyArray<string>;
+}
+
+/** RFC 7807 problem detail, returned by the document endpoints on failure. */
+export interface WireProblem {
+  readonly type: string;
+  readonly title: string;
+  readonly status: number;
+  readonly detail: string;
+  readonly instance?: string | null;
+}
