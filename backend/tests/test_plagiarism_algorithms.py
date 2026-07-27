@@ -42,11 +42,3 @@ def test_risk_level_bands() -> None:
     assert risk_level(0.25) == "medium"
     assert risk_level(0.5) == "high"
     assert risk_level(0.75) == "critical"
-
-
-def test_risk_level_bands() -> None:
-    assert risk_level(0.0) == "none"
-    assert risk_level(0.1) == "low"
-    assert risk_level(0.25) == "medium"
-    assert risk_level(0.5) == "high"
-    assert risk_level(0.75) == "critical"
