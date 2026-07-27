@@ -70,6 +70,10 @@ _RTF_SKIP_GROUP = re.compile(
 )
 
 
+def _decode_rtf_escape(match: re.Match[str]) -> str:
+    return bytes.fromhex(match.group(1)).decode("cp1252", errors="replace")
+
+
 class RtfExtractor(TextExtractorPort):
     @property
     def document_format(self) -> DocumentFormat:
@@ -79,7 +83,7 @@ class RtfExtractor(TextExtractorPort):
         raw, warnings = decode_bytes(payload)
         body = _RTF_SKIP_GROUP.sub("", raw)
         body = body.replace("\\par", "\n").replace("\\line", "\n").replace("\\tab", "\t")
-        body = _RTF_HEX_ESCAPE.sub(lambda m: bytes.fromhex(m.group(1)).decode("cp1252", "replace"), body)
+        body = _RTF_HEX_ESCAPE.sub(_decode_rtf_escape, body)
         body = _RTF_CONTROL_WORD.sub("", body)
         body = _RTF_GROUPS.sub("", body)
         return ExtractedText(text=body, warnings=warnings)
