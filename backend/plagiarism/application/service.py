@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 
 from plagiarism.domain.corpus import CorpusPort
 from plagiarism.domain.models import (
-    MatchKind,
     MatchedSpan,
+    MatchKind,
     PlagiarismReport,
     RiskLevel,
     SourceMatch,
