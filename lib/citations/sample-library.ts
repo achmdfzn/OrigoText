@@ -10,10 +10,9 @@ function normalizeDoi(raw: string): string {
 
 export function resolveDoi(raw: string): Reference | null {
   const target = normalizeDoi(raw);
-  const match = RESOLVABLE_REFERENCES.find(
+  return SAMPLE_LIBRARY.find(
     (ref) => ref.doi !== null && ref.doi.toLowerCase() === target,
-  );
-  return match ?? null;
+  ) ?? null;
 }
 
 export const SAMPLE_LIBRARY: ReadonlyArray<Reference> = [
