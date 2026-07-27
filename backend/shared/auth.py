@@ -59,6 +59,7 @@ def client_fingerprint(request: Request) -> str:
 
 async def authenticate(
     request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
     api_key: Annotated[str | None, Depends(_api_key_scheme)] = None,
 ) -> Principal:
     """Resolves the caller.
@@ -67,7 +68,6 @@ async def authenticate(
     needs no setup; every other environment rejects unauthenticated calls, and
     `require_valid_configuration` guarantees keys exist there.
     """
-    settings: Settings = get_settings()
     known_keys = settings.parsed_api_keys
 
     if not known_keys and settings.is_development:
