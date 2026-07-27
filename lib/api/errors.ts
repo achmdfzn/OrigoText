@@ -70,6 +70,11 @@ const FALLBACK_MESSAGES: Readonly<Record<ApiErrorKind, string>> = {
 };
 
 export function userFacingMessage(error: unknown): string {
+  if (error instanceof RateLimitError) {
+    return `Too many requests. Try again in ${error.retryAfterSeconds} second${
+      error.retryAfterSeconds === 1 ? "" : "s"
+    }.`;
+  }
   if (error instanceof ApiError) {
     return error.message.length > 0 ? error.message : FALLBACK_MESSAGES[error.kind];
   }
