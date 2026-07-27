@@ -80,3 +80,58 @@ class LexicalPlagiarismService(PlagiarismCheckPort):
             sources=matches,
             submission_text=text,
         )
+
+    def _match_document(
+        self,
+        document_id: str,
+        text: str,
+        submission_shingles: set[str],
+        document: CorpusDocument,
+    ) -> SourceMatch | None:
+        source_shingles = shingles(tokenize(document.text), SHINGLE_SIZE)
+        similarity = jaccard(submission_shingles, source_shingles)
+        if similarity < SIMILARITY_THRESHOLD:
+            return None
+
+        spans = self._align_sentences(document_id, text, source_shingles, document)
+        if not spans:
+            return None
+
+        return SourceMatch(
+            source=document.ref,
+            similarity=round(similarity, 4),
+            confidence=round(min(similarity * _SOURCE_CONFIDENCE_FACTOR, 1.0), 4),
+            matched_words=sum(len(tokenize(span.submission_text)) for span in spans),
+            spans=spans,
+        )
+
+    def _align_sentences(
+        self,
+        document_id: str,
+        text: str,
+        source_shingles: set[str],
+        document: CorpusDocument,
+    ) -> list[MatchedSpan]:
+        spans: list[MatchedSpan] = []
+        for start, end, sentence in sentences_with_offsets(text):
+            sentence_similarity = jaccard(
+                shingles(tokenize(sentence), SHINGLE_SIZE), source_shingles
+            )
+            if sentence_similarity < SIMILARITY_THRESHOLD:
+                continue
+            spans.append(
+                MatchedSpan(
+                    id=_span_id(document_id, document.ref.id, start),
+                    source_id=document.ref.id,
+                    submission_text=sentence,
+                    source_text=sentence,
+                    submission_start=start,
+                    submission_end=end,
+                    kind=_match_kind(sentence_similarity),
+                    similarity=round(sentence_similarity, 4),
+                    confidence=round(
+                        min(sentence_similarity * _SPAN_CONFIDENCE_FACTOR, 1.0), 4
+                    ),
+                )
+            )
+        return spans

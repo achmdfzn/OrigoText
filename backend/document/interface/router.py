@@ -16,7 +16,9 @@ from document.domain.errors import (
 )
 from document.domain.models import MAX_UPLOAD_BYTES, DocumentFormat, ParseResult
 from document.infrastructure.factory import build_parsing_service
-from shared.problem import PROBLEM_CONTENT_TYPE, problem_response
+from shared.dependencies import UploadLimitedPrincipal
+from shared.logging import log_event
+from shared.problem import problem_response, problem_responses
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
@@ -28,13 +30,12 @@ UploadDocument = Annotated[
     File(description=f"Document to parse, at most {MAX_UPLOAD_BYTES} bytes"),
 ]
 
-_PROBLEM_CONTENT: dict[str, dict[str, object]] = {PROBLEM_CONTENT_TYPE: {}}
-_PROBLEM_RESPONSES: dict[int | str, dict[str, object]] = {
-    400: {"description": "Empty or unreadable document", "content": _PROBLEM_CONTENT},
-    413: {"description": "File exceeds the upload size limit", "content": _PROBLEM_CONTENT},
-    415: {"description": "Unsupported document format", "content": _PROBLEM_CONTENT},
-    422: {"description": "No extractable text (may require OCR)", "content": _PROBLEM_CONTENT},
-}
+_PROBLEM_RESPONSES = problem_responses(
+    _400="Empty or unreadable document",
+    _413="File exceeds the upload size limit",
+    _415="Unsupported document format",
+    _422="No extractable text (may require OCR)",
+)
 
 
 def _safe_filename(upload: UploadFile) -> str:
@@ -98,11 +99,29 @@ def _problem_for(request: Request, error: DocumentError) -> JSONResponse:
 async def create_document(
     request: Request,
     file: UploadDocument,
+    principal: UploadLimitedPrincipal,
 ) -> ParseResult | JSONResponse:
     payload = await file.read()
+    filename = _safe_filename(file)
     try:
-        return await _service.parse(payload=payload, filename=_safe_filename(file))
+        result = await _service.parse(payload=payload, filename=filename)
     except DocumentError as error:
+        log_event(
+            "document.parse.rejected",
+            key_id=principal.key_id,
+            reason=type(error).__name__,
+            byte_size=len(payload),
+        )
         return _problem_for(request, error)
     finally:
         await file.close()
+
+    log_event(
+        "document.parse.completed",
+        key_id=principal.key_id,
+        document_id=result.id,
+        document_format=result.document_format.value,
+        word_count=result.word_count,
+        truncated=result.truncated,
+    )
+    return result
