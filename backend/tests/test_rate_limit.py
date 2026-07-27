@@ -9,11 +9,12 @@ from tests.conftest import OTHER_KEY, SAMPLE_TEXT, VALID_KEY
 
 
 def _check(client: TestClient, key: str) -> int:
-    return client.post(
+    response = client.post(
         "/v1/plagiarism/checks",
         json={"text": SAMPLE_TEXT},
         headers={"X-API-Key": key},
-    ).status_code
+    )
+    return int(response.status_code)
 
 
 def test_requests_beyond_the_budget_are_throttled(secured_client: TestClient) -> None:
@@ -54,11 +55,12 @@ def test_upload_scope_has_its_own_tighter_budget(secured_client: TestClient) -> 
         _check(secured_client, VALID_KEY)
 
     def upload() -> int:
-        return secured_client.post(
+        response = secured_client.post(
             "/v1/documents",
             files={"file": ("paper.txt", SAMPLE_TEXT.encode(), "text/plain")},
             headers={"X-API-Key": VALID_KEY},
-        ).status_code
+        )
+        return int(response.status_code)
 
     assert upload() == 201
     assert upload() == 201

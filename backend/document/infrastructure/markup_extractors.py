@@ -26,10 +26,7 @@ def html_to_text(markup: str) -> tuple[str, str | None]:
         heading = soup.h1.get_text(strip=True)
         title = heading if heading else None
 
-    for tag in soup.find_all(_BLOCK_TAGS):
-        tag.insert_after(soup.new_string("\n\n"))
-
-    return soup.get_text(), title
+    return soup.get_text(separator="\n\n"), title
 
 
 class HtmlExtractor(TextExtractorPort):

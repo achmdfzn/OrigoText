@@ -10,7 +10,11 @@ Two processes, two terminals. Start the backend first — the frontend calls it.
 
 ### Backend (port 8000)
 
+Python 3.11 or newer.
+
 ```bash
+python -m venv .venv
+source .venv/Scripts/activate    # Windows bash; use .venv/bin/activate on macOS/Linux
 cd backend
 python -m pip install -e ".[dev]"
 python -m uvicorn main:app --reload --port 8000
