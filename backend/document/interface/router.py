@@ -50,7 +50,7 @@ def _problem_for(request: Request, error: DocumentError) -> JSONResponse:
             request,
             slug="file-too-large",
             title="File too large",
-            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=str(error),
             extra={"limit_bytes": error.limit},
         )
@@ -68,7 +68,7 @@ def _problem_for(request: Request, error: DocumentError) -> JSONResponse:
             request,
             slug="no-extractable-text",
             title="No extractable text",
-            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(error),
         )
     if isinstance(error, EmptyFileError | CorruptDocumentError):
