@@ -6,10 +6,17 @@
 
 import { DEFAULT_TIMEOUT_MS, apiBaseUrl } from "./config";
 import { ApiContractError, ApiError } from "./errors";
-import { toDetectionResult, toPlagiarismReport } from "./mappers";
-import type { WireDetectionResult, WirePlagiarismReport, WireValidationError } from "./wire";
+import { toDetectionResult, toParseResult, toPlagiarismReport } from "./mappers";
+import type {
+  WireDetectionResult,
+  WireParseResult,
+  WirePlagiarismReport,
+  WireProblem,
+  WireValidationError,
+} from "./wire";
 import type { PlagiarismReport } from "@/lib/plagiarism/types";
 import type { DetectionResult } from "@/lib/ai-detection/types";
+import type { ParseResult } from "@/lib/documents/types";
 
 export interface AnalysisRequest {
   readonly text: string;
@@ -26,6 +33,15 @@ function isValidationBody(value: unknown): value is WireValidationError {
   );
 }
 
+function isProblemBody(value: unknown): value is WireProblem {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { detail?: unknown }).detail === "string" &&
+    typeof (value as { title?: unknown }).title === "string"
+  );
+}
+
 async function describeFailure(response: Response): Promise<string> {
   let body: unknown;
   try {
@@ -33,12 +49,11 @@ async function describeFailure(response: Response): Promise<string> {
   } catch {
     return "";
   }
+  if (isProblemBody(body)) {
+    return body.detail;
+  }
   if (isValidationBody(body)) {
     return body.detail.map((entry) => entry.msg).join("; ");
-  }
-  if (typeof body === "object" && body !== null) {
-    const detail = (body as { detail?: unknown }).detail;
-    if (typeof detail === "string") return detail;
   }
   return "";
 }
@@ -154,4 +169,60 @@ export async function detectAiText({
     signal,
   );
   return toDetectionResult(wire);
+}
+
+export interface ParseDocumentRequest {
+  readonly file: File;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Uploads a file for server-side parsing. The browser never interprets the file
+ * itself: binary formats such as PDF and DOCX require real extraction, and the
+ * backend also sanitizes the result before it reaches any prompt.
+ */
+export async function parseDocument({
+  file,
+  signal,
+}: ParseDocumentRequest): Promise<ParseResult> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+
+  const timeout = withTimeout(signal);
+
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl()}/v1/documents`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: form,
+      signal: timeout.signal,
+      cache: "no-store",
+    });
+  } catch {
+    if (timeout.timedOut()) {
+      throw new ApiError("timeout", "Parsing the document took too long.");
+    }
+    if (signal?.aborted === true) {
+      throw new ApiError("aborted", "The upload was cancelled.");
+    }
+    throw new ApiError("network", "Could not reach the document service.");
+  } finally {
+    timeout.dispose();
+  }
+
+  if (!response.ok) {
+    const detail = await describeFailure(response);
+    throw new ApiError(
+      response.status < 500 ? "validation" : "server",
+      detail.length > 0 ? detail : `Document service returned ${response.status}.`,
+      response.status,
+    );
+  }
+
+  try {
+    return toParseResult((await response.json()) as WireParseResult);
+  } catch {
+    throw new ApiContractError("Document service returned a malformed JSON body.");
+  }
 }

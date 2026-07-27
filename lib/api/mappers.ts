@@ -8,11 +8,13 @@ import type {
   WireDetectionResult,
   WireMatchKind,
   WireMatchedSpan,
+  WireParseResult,
   WirePlagiarismReport,
   WireSourceMatch,
   WireSourceRef,
   WireVerdict,
 } from "./wire";
+import type { ParseResult } from "@/lib/documents/types";
 import type {
   MatchKind,
   MatchedSpan,
@@ -139,5 +141,42 @@ export function toDetectionResult(wire: WireDetectionResult): DetectionResult {
     signals,
     sentences,
     suspectedModels,
+  };
+}
+
+export function toParseResult(wire: WireParseResult): ParseResult {
+  return {
+    id: wire.id,
+    filename: wire.filename,
+    documentFormat: wire.document_format,
+    byteSize: wire.byte_size,
+    parsedAt: wire.parsed_at,
+    metadata: {
+      title: wire.metadata.title,
+      authors: wire.metadata.authors,
+      pageCount: wire.metadata.page_count,
+      language: wire.metadata.language,
+    },
+    text: wire.text,
+    wordCount: wire.word_count,
+    characterCount: wire.character_count,
+    sections: wire.sections.map((section) => ({
+      id: section.id,
+      kind: section.kind,
+      heading: section.heading,
+      text: section.text,
+      startOffset: section.start_offset,
+      endOffset: section.end_offset,
+    })),
+    chunks: wire.chunks.map((chunk) => ({
+      id: chunk.id,
+      sectionId: chunk.section_id,
+      text: chunk.text,
+      startOffset: chunk.start_offset,
+      endOffset: chunk.end_offset,
+      wordCount: chunk.word_count,
+    })),
+    truncated: wire.truncated,
+    warnings: wire.warnings,
   };
 }
