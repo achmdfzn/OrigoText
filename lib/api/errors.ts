@@ -8,6 +8,8 @@ export type ApiErrorKind =
   | "network"
   | "timeout"
   | "aborted"
+  | "unauthenticated"
+  | "rateLimited"
   | "validation"
   | "server"
   | "contract";
@@ -25,7 +27,23 @@ export class ApiError extends Error {
 
   /** True when retrying the same request could plausibly succeed. */
   get retryable(): boolean {
-    return this.kind === "network" || this.kind === "timeout" || this.kind === "server";
+    return (
+      this.kind === "network" ||
+      this.kind === "timeout" ||
+      this.kind === "server" ||
+      this.kind === "rateLimited"
+    );
+  }
+}
+
+/** Seconds to wait before retrying, taken from the Retry-After header. */
+export class RateLimitError extends ApiError {
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super("rateLimited", message, 429);
+    this.name = "RateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -44,6 +62,8 @@ const FALLBACK_MESSAGES: Readonly<Record<ApiErrorKind, string>> = {
   network: "Could not reach the analysis service. Check your connection and try again.",
   timeout: "The analysis service took too long to respond. Try again in a moment.",
   aborted: "The request was cancelled.",
+  unauthenticated: "This app is not authorized to use the analysis service.",
+  rateLimited: "Too many requests. Wait a moment before trying again.",
   validation: "The submitted text was rejected by the analysis service.",
   server: "The analysis service failed to process this request.",
   contract: "The analysis service returned an unexpected response.",

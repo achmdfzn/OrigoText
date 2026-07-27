@@ -4,8 +4,8 @@
  * into an `ApiError` so callers never handle raw fetch rejections.
  */
 
-import { DEFAULT_TIMEOUT_MS, apiBaseUrl } from "./config";
-import { ApiContractError, ApiError } from "./errors";
+import { DEFAULT_TIMEOUT_MS, apiBaseUrl, authHeaders } from "./config";
+import { ApiContractError, ApiError, RateLimitError } from "./errors";
 import { toDetectionResult, toParseResult, toPlagiarismReport } from "./mappers";
 import type {
   WireDetectionResult,
@@ -58,6 +58,29 @@ async function describeFailure(response: Response): Promise<string> {
   return "";
 }
 
+function retryAfterSeconds(response: Response): number {
+  const header = response.headers.get("Retry-After");
+  const parsed = header !== null ? Number.parseInt(header, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+}
+
+/** Maps a non-2xx response onto the matching typed error. */
+async function failureFor(response: Response, serviceName: string): Promise<ApiError> {
+  const detail = await describeFailure(response);
+  const message = detail.length > 0 ? detail : `${serviceName} returned ${response.status}.`;
+
+  if (response.status === 401 || response.status === 403) {
+    return new ApiError("unauthenticated", message, response.status);
+  }
+  if (response.status === 429) {
+    return new RateLimitError(message, retryAfterSeconds(response));
+  }
+  if (response.status < 500) {
+    return new ApiError("validation", message, response.status);
+  }
+  return new ApiError("server", message, response.status);
+}
+
 /**
  * Combines the caller's abort signal with an internal timeout so a hung backend
  * cannot leave the UI stuck in its loading state.
@@ -102,7 +125,11 @@ async function postJson<TWire>(
   try {
     response = await fetch(`${apiBaseUrl()}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...authHeaders(),
+      },
       body: JSON.stringify(body),
       signal: timeout.signal,
       cache: "no-store",
@@ -123,19 +150,7 @@ async function postJson<TWire>(
   }
 
   if (!response.ok) {
-    const detail = await describeFailure(response);
-    if (response.status === 422) {
-      throw new ApiError(
-        "validation",
-        detail.length > 0 ? detail : "The submitted text was rejected.",
-        response.status,
-      );
-    }
-    throw new ApiError(
-      "server",
-      detail.length > 0 ? detail : `Analysis service returned ${response.status}.`,
-      response.status,
-    );
+    throw await failureFor(response, "Analysis service");
   }
 
   try {
@@ -194,7 +209,7 @@ export async function parseDocument({
   try {
     response = await fetch(`${apiBaseUrl()}/v1/documents`, {
       method: "POST",
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", ...authHeaders() },
       body: form,
       signal: timeout.signal,
       cache: "no-store",
@@ -212,12 +227,7 @@ export async function parseDocument({
   }
 
   if (!response.ok) {
-    const detail = await describeFailure(response);
-    throw new ApiError(
-      response.status < 500 ? "validation" : "server",
-      detail.length > 0 ? detail : `Document service returned ${response.status}.`,
-      response.status,
-    );
+    throw await failureFor(response, "Document service");
   }
 
   try {
