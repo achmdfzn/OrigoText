@@ -60,3 +60,50 @@ After changing any request or response model, regenerate the committed spec:
 ```bash
 cd backend && python scripts/export_openapi.py
 ```
+
+## Layout
+
+```
+app/                 App Router routes; (dashboard) group wraps the four screens
+components/          UI per feature, plus shared primitives in ui/
+lib/                 Types, pure logic, and the API boundary in lib/api/
+backend/
+  document/          upload, sanitization, parsing, chunking
+  plagiarism/        lexical similarity against the licensed corpus
+  ai_detection/      feature-based AI-likelihood estimation
+  shared/            settings, auth, rate limiting, RFC 7807 problems, logging
+  openapi.json       committed contract, generated from the app
+```
+
+Each backend context follows `domain ← application ← infrastructure/interface`. The domain layer imports nothing framework-specific.
+
+`lib/api/wire.ts` holds the snake_case shapes FastAPI actually returns; `lib/api/mappers.ts` is the only place naming conventions cross. Nothing outside `lib/api` should import the wire types.
+
+## API
+
+| Method | Path                       | Purpose                                                  |
+| ------ | -------------------------- | -------------------------------------------------------- |
+| `POST` | `/v1/documents`            | Upload and parse a document into sanitized, chunked text |
+| `POST` | `/v1/plagiarism/checks`    | Similarity report with matched sources and spans         |
+| `POST` | `/v1/ai-detection/analyze` | AI-likelihood estimate with per-sentence breakdown       |
+| `GET`  | `/healthz`, `/readyz`      | Liveness and readiness                                   |
+
+Authenticate with `X-API-Key`. Errors are `application/problem+json`. Analysis endpoints allow 30 requests/minute per key, uploads 10/minute, both reported via `X-RateLimit-*` headers and `Retry-After` on 429.
+
+Nine input formats parse: PDF, DOCX, ODT, EPUB, HTML, Markdown, LaTeX, RTF, TXT. Format is resolved from magic bytes, not from the client's declared content type. Scanned PDFs with no text layer return 422 rather than empty output — OCR is not wired up yet.
+
+## Known gaps
+
+- Rate limit counters live in process memory, so they are per-instance. Horizontal scaling needs a Redis adapter.
+- `NEXT_PUBLIC_API_KEY` ships to the browser. It gates the deployment, not individual users; per-user auth needs a server-side proxy plus JWT/OAuth.
+- Parsing runs in a worker thread inside the request. Large files should move to a queue, and `POST /v1/documents` should return a job id as described in `PRD.md §11`.
+- The citations and search screens render sample data; their backend contexts do not exist yet.
+- No OCR, no persistence — the corpus is in-memory and results are not stored.
+
+## AI detection
+
+Detection is probabilistic. Every result carries confidence and caveats, and the UI states that scores are not proof of authorship. False positives are known to affect non-native writers and heavily edited text. Do not use a score as sole evidence of misconduct.
+
+## Data sources
+
+Scholarly metadata comes only from officially licensed APIs, each record carrying its `source_provenance`. Sci-Hub and pirated corpora are prohibited.
