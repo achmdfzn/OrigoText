@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OrigoText
 
-## Getting Started
+Academic integrity platform: evidence-first plagiarism detection, calibrated AI-text detection, and document parsing. Next.js App Router frontend, FastAPI backend.
 
-First, run the development server:
+Scope lives in [PRD.md](PRD.md), engineering rules in [CLAUDE.md](CLAUDE.md), the agent model in [AGENTS.md](AGENTS.md), and the visual system in [DESIGN.md](DESIGN.md).
+
+## Running locally
+
+Two processes, two terminals. Start the backend first — the frontend calls it.
+
+### Backend (port 8000)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+cd backend
+python -m pip install -e ".[dev]"
+python -m uvicorn main:app --reload --port 8000
+```
+
+With no configuration the backend runs in `development` mode and accepts requests without an API key. Interactive docs at `http://localhost:8000/docs`, liveness at `/healthz`.
+
+### Frontend (port 3000)
+
+```bash
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`. It redirects to `/plagiarism`. `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8000`, so no env file is needed for the default setup.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+To override anything, copy the examples:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cp .env.example .env.local
+cp backend/.env.example backend/.env
+```
 
-## Learn More
+### Running with authentication enabled
 
-To learn more about Next.js, take a look at the following resources:
+Any environment other than `development` requires API keys, and the app refuses to start without them.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+cd backend
+export ORIGOTEXT_ENVIRONMENT=production
+export ORIGOTEXT_API_KEYS=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+python -m uvicorn main:app --port 8000
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Put the same key in `.env.local` as `NEXT_PUBLIC_API_KEY` and restart `bun dev`. Without it every request returns 401.
 
-## Deploy on Vercel
+## Verification
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+cd backend && python -m pytest tests -q
+cd backend && python -m ruff check . && python -m mypy --strict .
+bun run typecheck && bun run lint && bun run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+After changing any request or response model, regenerate the committed spec:
+
+```bash
+cd backend && python scripts/export_openapi.py
+```
