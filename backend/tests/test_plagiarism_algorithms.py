@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from plagiarism.domain.algorithms import jaccard, shingles, tokenize, risk_level
+from plagiarism.domain.algorithms import jaccard, risk_level, shingles, tokenize
 
 
 def test_tokenize_basic() -> None:
@@ -49,24 +44,9 @@ def test_risk_level_bands() -> None:
     assert risk_level(0.75) == "critical"
 
 
-if __name__ == "__main__":
-    tests = [
-        test_tokenize_basic,
-        test_shingles_size,
-        test_jaccard_identical,
-        test_jaccard_disjoint,
-        test_jaccard_partial,
-        test_risk_level_bands,
-    ]
-    passed = 0
-    for test in tests:
-        try:
-            test()
-            print(f"  PASS  {test.__name__}")
-            passed += 1
-        except AssertionError as exc:
-            print(f"  FAIL  {test.__name__}: {exc}")
-        except Exception as exc:
-            print(f"  ERROR {test.__name__}: {exc}")
-    print(f"\n{passed}/{len(tests)} passed")
-    sys.exit(0 if passed == len(tests) else 1)
+def test_risk_level_bands() -> None:
+    assert risk_level(0.0) == "none"
+    assert risk_level(0.1) == "low"
+    assert risk_level(0.25) == "medium"
+    assert risk_level(0.5) == "high"
+    assert risk_level(0.75) == "critical"
