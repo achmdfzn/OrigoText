@@ -21,11 +21,12 @@ router = APIRouter(prefix="/v1/documents", tags=["documents"])
 _service: DocumentParsingService = build_parsing_service()
 
 _MAX_FILENAME_LENGTH = 255
+_PROBLEM_CONTENT: dict[str, dict[str, object]] = {PROBLEM_CONTENT_TYPE: {}}
 _PROBLEM_RESPONSES: dict[int | str, dict[str, object]] = {
-    400: {"description": "Empty file or unreadable document", "content": {PROBLEM_CONTENT_TYPE: {}}},
-    413: {"description": "File exceeds the upload size limit", "content": {PROBLEM_CONTENT_TYPE: {}}},
-    415: {"description": "Unsupported document format", "content": {PROBLEM_CONTENT_TYPE: {}}},
-    422: {"description": "No extractable text (may require OCR)", "content": {PROBLEM_CONTENT_TYPE: {}}},
+    400: {"description": "Empty or unreadable document", "content": _PROBLEM_CONTENT},
+    413: {"description": "File exceeds the upload size limit", "content": _PROBLEM_CONTENT},
+    415: {"description": "Unsupported document format", "content": _PROBLEM_CONTENT},
+    422: {"description": "No extractable text (may require OCR)", "content": _PROBLEM_CONTENT},
 }
 
 
@@ -63,7 +64,7 @@ def _problem_for(request: Request, error: DocumentError) -> JSONResponse:
             status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
         )
-    if isinstance(error, (EmptyFileError, CorruptDocumentError)):
+    if isinstance(error, EmptyFileError | CorruptDocumentError):
         return problem_response(
             request,
             slug="unreadable-document",
