@@ -1,0 +1,4 @@
+ai_detection
+document
+plagiarism
+shared
