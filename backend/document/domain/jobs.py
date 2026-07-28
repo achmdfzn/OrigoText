@@ -92,6 +92,10 @@ class JobStorePort(ABC):
         Lets the transport stream progress without polling in a tight loop.
         """
 
+    @abstractmethod
+    async def purge_expired(self) -> int:
+        """Drops terminal jobs past their retention window; returns how many."""
+
 
 class JobQueuePort(ABC):
     """Dispatch for parse work.

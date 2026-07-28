@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     api_keys: str = ""
+    database_url: str = ""
+    migration_database_url: str = ""
     allowed_origins: str = "http://localhost:3000"
     rate_limit_per_minute: int = Field(default=30, ge=1)
     upload_rate_limit_per_minute: int = Field(default=10, ge=1)
@@ -37,6 +39,15 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.environment == "development"
+
+    @property
+    def has_database(self) -> bool:
+        """Whether durable storage is configured.
+
+        Without a database URL the app falls back to in-memory adapters, so
+        local development needs no external service.
+        """
+        return bool(self.database_url.strip())
 
     @property
     def parsed_api_keys(self) -> frozenset[str]:

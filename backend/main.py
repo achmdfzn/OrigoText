@@ -9,8 +9,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_detection.interface.router import router as ai_detection_router
+from document.domain.jobs import JobStorePort
 from document.infrastructure.factory import build_job_service
-from document.infrastructure.jobs import InMemoryJobStore
+from document.infrastructure.postgres_jobs import PostgresJobStore
 from document.interface.dependencies import (
     JOB_QUEUE_STATE,
     JOB_SERVICE_STATE,
@@ -18,6 +19,7 @@ from document.interface.dependencies import (
 )
 from document.interface.router import router as document_router
 from plagiarism.interface.router import router as plagiarism_router
+from shared.database import build_engine
 from shared.dependencies import get_rate_limiter
 from shared.errors import TransportError
 from shared.logging import log_event
@@ -33,7 +35,10 @@ settings.require_valid_configuration()
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Owns the job pipeline so workers live on the serving event loop."""
-    service, store, queue = build_job_service()
+    engine = build_engine(settings.database_url) if settings.has_database else None
+    store: JobStorePort | None = PostgresJobStore(engine) if engine is not None else None
+    service, store, queue = build_job_service(store)
+    log_event("document.jobs.storage", durable=engine is not None)
     setattr(application.state, JOB_SERVICE_STATE, service)
     setattr(application.state, JOB_STORE_STATE, store)
     setattr(application.state, JOB_QUEUE_STATE, queue)
@@ -47,10 +52,12 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await reaper
         await queue.shutdown()
         await get_rate_limiter().reset()
+        if engine is not None:
+            await engine.dispose()
 
 
-async def _reap_expired_jobs(store: InMemoryJobStore) -> None:
-    """Periodically drops terminal jobs so the in-memory store stays bounded."""
+async def _reap_expired_jobs(store: JobStorePort) -> None:
+    """Periodically drops terminal jobs so retention stays bounded."""
     while True:
         await asyncio.sleep(JOB_REAP_INTERVAL_SECONDS)
         purged = await store.purge_expired()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from document.application.jobs import DocumentJobService
 from document.application.service import DocumentParsingService
+from document.domain.jobs import JobStorePort
 from document.domain.ports import TextExtractorPort
 from document.infrastructure.detection import ContentSniffingDetector
 from document.infrastructure.jobs import AsyncioJobQueue, InMemoryJobStore
@@ -40,13 +41,17 @@ def build_parsing_service() -> DocumentParsingService:
     )
 
 
-def build_job_service() -> tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue]:
-    """Wires the job service against its in-process adapters.
+def build_job_service(
+    store: JobStorePort | None = None,
+) -> tuple[DocumentJobService, JobStorePort, AsyncioJobQueue]:
+    """Wires the job service against a store and an in-process worker queue.
 
-    The store and queue are returned so the application can purge expired jobs
-    and drain in-flight work during shutdown.
+    Passing a store selects durable persistence; omitting it keeps everything
+    in memory so local development needs no database. The store and queue are
+    returned so the application can purge expired jobs and drain in-flight work
+    during shutdown.
     """
-    store = InMemoryJobStore()
+    store = store if store is not None else InMemoryJobStore()
     service_ref: list[DocumentJobService] = []
 
     async def mark_crashed(job_id: str, error: BaseException) -> None:

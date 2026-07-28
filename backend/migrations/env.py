@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import asyncio
+import os
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy.engine import Connection
+
+from shared.database import build_engine, install_selector_loop_policy
+from shared.schema import metadata
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = metadata
+
+
+def _database_url() -> str:
+    """Migrations use the session-mode connection, not the transaction pooler.
+
+    DDL and Alembic's version bookkeeping need a stable session, which the
+    transaction-mode pooler does not guarantee.
+    """
+    url = os.environ.get("ORIGOTEXT_MIGRATION_DATABASE_URL") or os.environ.get(
+        "ORIGOTEXT_DATABASE_URL"
+    )
+    if not url:
+        raise RuntimeError(
+            "Set ORIGOTEXT_MIGRATION_DATABASE_URL (or ORIGOTEXT_DATABASE_URL) to run migrations."
+        )
+    return url
+
+
+def run_migrations_offline() -> None:
+    context.configure(
+        url=_database_url(),
+        target_metadata=target_metadata,
+        literal_binds=True,
+        compare_type=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def _run(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def _run_async() -> None:
+    engine = build_engine(_database_url())
+    try:
+        async with engine.connect() as connection:
+            await connection.run_sync(_run)
+    finally:
+        await engine.dispose()
+
+
+def run_migrations_online() -> None:
+    install_selector_loop_policy()
+    asyncio.run(_run_async())
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

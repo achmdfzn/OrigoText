@@ -5,7 +5,8 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from document.application.jobs import DocumentJobService
-from document.infrastructure.jobs import AsyncioJobQueue, InMemoryJobStore
+from document.domain.jobs import JobStorePort
+from document.infrastructure.jobs import AsyncioJobQueue
 
 JOB_SERVICE_STATE = "document_job_service"
 JOB_STORE_STATE = "document_job_store"
@@ -25,9 +26,9 @@ def get_job_service(request: Request) -> DocumentJobService:
     return service
 
 
-def job_store_of(app_state: object) -> InMemoryJobStore:
+def job_store_of(app_state: object) -> JobStorePort:
     store = getattr(app_state, JOB_STORE_STATE, None)
-    if not isinstance(store, InMemoryJobStore):
+    if not isinstance(store, JobStorePort):
         raise RuntimeError("Document job store is not initialized on application state.")
     return store
 
