@@ -35,13 +35,12 @@ async def engine() -> AsyncIterator[AsyncEngine]:
 
 
 async def _run_to_completion(service: DocumentJobService, job_id: str) -> None:
-    job = await service.get(job_id)
-    assert job is not None
-    await service.run(job_id, docx_bytes(), job.filename)
+    await service.run(job_id)
 
 
 async def test_job_survives_a_new_store_instance(engine: AsyncEngine) -> None:
-    service, _, _ = build_job_service(PostgresJobStore(engine))
+    payload_store = PostgresPayloadStore(engine)
+    service, _, _ = build_job_service(PostgresJobStore(engine), payload_store)
     submitted = await service.submit(docx_bytes(), "paper.docx")
     await _run_to_completion(service, submitted.id)
 
@@ -92,6 +91,7 @@ async def test_purge_expired_removes_only_terminal_jobs(engine: AsyncEngine) -> 
 
     queued = ParseJob(
         id="job_still_queued",
+        document_id=None,
         filename="queued.docx",
         byte_size=10,
         status=JobStatus.QUEUED,

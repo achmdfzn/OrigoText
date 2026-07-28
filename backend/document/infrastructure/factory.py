@@ -57,6 +57,7 @@ def build_job_service(
     service = DocumentJobService(
         parser=build_parsing_service(),
         store=store,
+        payload_store=payload_store,
         queue=queue,
     )
     service_ref.append(service)

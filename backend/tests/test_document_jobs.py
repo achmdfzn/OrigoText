@@ -133,9 +133,9 @@ async def test_queue_bounds_concurrency() -> None:
     active = 0
     peak = 0
 
-    async def runner(job_id: str, payload: bytes, filename: str) -> None:
+    async def runner(job_id: str) -> None:
         nonlocal active, peak
-        del job_id, payload, filename
+        del job_id
         active += 1
         peak = max(peak, active)
         await asyncio.sleep(0.02)
@@ -145,7 +145,7 @@ async def test_queue_bounds_concurrency() -> None:
     queue.set_runner(runner)
 
     for index in range(6):
-        await queue.enqueue(f"job_{index}", b"payload", "paper.txt")
+        await queue.enqueue(f"job_{index}")
     await queue.shutdown()
 
     assert peak <= 2
@@ -154,8 +154,8 @@ async def test_queue_bounds_concurrency() -> None:
 async def test_worker_crash_marks_job_failed_without_leaking_detail() -> None:
     service, store, queue = build_job_service()
 
-    async def explode(job_id: str, payload: bytes, filename: str) -> None:
-        del job_id, payload, filename
+    async def explode(job_id: str) -> None:
+        del job_id
         raise ZeroDivisionError("internal detail that must not surface")
 
     queue.set_runner(explode)

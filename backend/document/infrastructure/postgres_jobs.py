@@ -179,8 +179,44 @@ class PostgresJobStore(JobStorePort):
             )
         )
 
+    async def list_recoverable(self) -> list[ParseJob]:
+        async with self._engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(parse_jobs)
+                    .where(parse_jobs.c.status.in_(("queued", "running")))
+                    .order_by(parse_jobs.c.submitted_at)
+                )
+            ).all()
+
+        jobs: list[ParseJob] = []
+        for row in rows:
+            mapping = row._mapping
+            failure = mapping["failure"]
+            jobs.append(
+                ParseJob(
+                    id=str(mapping["id"]),
+                    document_id=(
+                        str(mapping["document_id"])
+                        if mapping["document_id"] is not None
+                        else None
+                    ),
+                    filename=str(mapping["filename"]),
+                    byte_size=int(mapping["byte_size"]),
+                    status=JobStatus(mapping["status"]),
+                    stage=JobStage(mapping["stage"]),
+                    progress=float(mapping["progress"]),
+                    submitted_at=_as_iso(mapping["submitted_at"]),
+                    updated_at=_as_iso(mapping["updated_at"]),
+                    result=None,
+                    failure=(
+                        JobFailure.model_validate(failure) if failure is not None else None
+                    ),
+                )
+            )
+        return jobs
+
     async def await_change(self, job_id: str, timeout_seconds: float) -> ParseJob | None:
-        baseline = await self.get(job_id)
         if baseline is None:
             return None
 

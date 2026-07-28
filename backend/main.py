@@ -45,8 +45,10 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     engine = build_engine(settings.database_url) if settings.has_database else None
     store: JobStorePort | None = PostgresJobStore(engine) if engine is not None else None
-    service, store, queue = build_job_service(store)
-    log_event("document.jobs.storage", durable=engine is not None)
+    payload_store = PostgresPayloadStore(engine) if engine is not None else None
+    service, store, queue = build_job_service(store, payload_store)
+    recovered = await service.recover_pending()
+    log_event("document.jobs.storage", durable=engine is not None, recovered=recovered)
     setattr(application.state, JOB_SERVICE_STATE, service)
     setattr(application.state, JOB_STORE_STATE, store)
     setattr(application.state, JOB_QUEUE_STATE, queue)
