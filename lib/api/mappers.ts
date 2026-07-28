@@ -185,7 +185,6 @@ export function toParseResult(wire: WireParseResult): ParseResult {
 export function toParseJob(wire: WireParseJob): ParseJob {
   return {
     id: wire.id,
-    documentId: wire.document_id,
     filename: wire.filename,
     byteSize: wire.byte_size,
     status: wire.status,

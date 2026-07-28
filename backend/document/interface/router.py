@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from document.domain.errors import EmptyFileError, FileTooLargeError
 from document.domain.jobs import ParseJob
 from document.domain.models import MAX_UPLOAD_BYTES
 from document.interface.dependencies import JobService
@@ -53,15 +54,36 @@ def _job_not_found(request: Request, job_id: str) -> JSONResponse:
     responses=problem_responses(_413="File exceeds the upload size limit"),
 )
 async def create_document_job(
+    request: Request,
     file: UploadDocument,
     service: JobService,
     principal: UploadLimitedPrincipal,
     response: Response,
-) -> ParseJob:
-    payload = await file.read()
-    await file.close()
+) -> ParseJob | JSONResponse:
+    filename = safe_filename(file)
+    try:
+        payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    finally:
+        await file.close()
 
-    job = await service.submit(payload=payload, filename=safe_filename(file))
+    if not payload:
+        return problem_response(
+            request,
+            slug="unreadable-document",
+            title="Unreadable document",
+            status=status.HTTP_400_BAD_REQUEST,
+            detail=str(EmptyFileError(filename)),
+        )
+    if len(payload) > MAX_UPLOAD_BYTES:
+        return problem_response(
+            request,
+            slug="file-too-large",
+            title="File too large",
+            status=413,
+            detail=str(FileTooLargeError(len(payload), MAX_UPLOAD_BYTES)),
+        )
+
+    job = await service.submit(payload=payload, filename=filename)
     response.headers["Location"] = f"/v1/documents/{job.id}"
 
     log_event(

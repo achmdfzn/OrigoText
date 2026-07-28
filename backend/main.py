@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_detection.interface.router import router as ai_detection_router
+from document.application.jobs import DocumentJobService
 from document.domain.jobs import JobStorePort
 from document.infrastructure.factory import build_job_service
 from document.infrastructure.postgres_jobs import PostgresJobStore, PostgresPayloadStore
@@ -53,7 +54,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     setattr(application.state, JOB_STORE_STATE, store)
     setattr(application.state, JOB_QUEUE_STATE, queue)
 
-    reaper = asyncio.create_task(_reap_expired_jobs(store))
+    reaper = asyncio.create_task(_reap_expired_jobs(service))
     try:
         yield
     finally:
@@ -66,11 +67,11 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await engine.dispose()
 
 
-async def _reap_expired_jobs(store: JobStorePort) -> None:
-    """Periodically drops terminal jobs so retention stays bounded."""
+async def _reap_expired_jobs(service: DocumentJobService) -> None:
+    """Periodically drops expired jobs and their private uploaded bytes."""
     while True:
         await asyncio.sleep(JOB_REAP_INTERVAL_SECONDS)
-        purged = await store.purge_expired()
+        purged = await service.purge_expired()
         if purged > 0:
             log_event("document.jobs.purged", count=purged)
 

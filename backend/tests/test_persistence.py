@@ -4,17 +4,16 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from document.application.jobs import DocumentJobService
 from document.domain.jobs import JobStage, JobStatus, ParseJob
 from document.infrastructure.factory import build_job_service
 from document.infrastructure.postgres_jobs import (
     PostgresJobStore,
     PostgresPayloadStore,
-    content_digest,
 )
-from shared.schema import metadata
+from shared.schema import document_payloads, metadata
 from tests.fixtures import docx_bytes
 
 
@@ -34,15 +33,11 @@ async def engine() -> AsyncIterator[AsyncEngine]:
         await engine.dispose()
 
 
-async def _run_to_completion(service: DocumentJobService, job_id: str) -> None:
-    await service.run(job_id)
-
-
 async def test_job_survives_a_new_store_instance(engine: AsyncEngine) -> None:
     payload_store = PostgresPayloadStore(engine)
-    service, _, _ = build_job_service(PostgresJobStore(engine), payload_store)
+    service, _, queue = build_job_service(PostgresJobStore(engine), payload_store)
     submitted = await service.submit(docx_bytes(), "paper.docx")
-    await _run_to_completion(service, submitted.id)
+    await queue.join()
 
     reopened = PostgresJobStore(engine)
     job = await reopened.get(submitted.id)
@@ -71,10 +66,10 @@ async def test_save_is_idempotent_for_repeated_stages(engine: AsyncEngine) -> No
 
 async def test_failed_job_persists_typed_failure(engine: AsyncEngine) -> None:
     store = PostgresJobStore(engine)
-    service, _, _ = build_job_service(store, PostgresPayloadStore(engine))
+    service, _, queue = build_job_service(store, PostgresPayloadStore(engine))
     submitted = await service.submit(b"\x7fELF\x02\x01\x01\x00", "payload.bin")
 
-    await service.run(submitted.id)
+    await queue.join()
     job = await store.get(submitted.id)
 
     assert job is not None
@@ -87,7 +82,7 @@ async def test_failed_job_persists_typed_failure(engine: AsyncEngine) -> None:
 
 async def test_purge_expired_removes_only_terminal_jobs(engine: AsyncEngine) -> None:
     store = PostgresJobStore(engine, ttl_seconds=-1.0)
-    service, _, _ = build_job_service(store, PostgresPayloadStore(engine))
+    service, _, queue = build_job_service(store, PostgresPayloadStore(engine))
 
     queued = ParseJob(
         id="job_still_queued",
@@ -105,13 +100,15 @@ async def test_purge_expired_removes_only_terminal_jobs(engine: AsyncEngine) -> 
     await store.create(queued)
 
     finished = await service.submit(docx_bytes(), "finished.docx")
-    await _run_to_completion(service, finished.id)
+    await queue.join()
 
-    purged = await store.purge_expired()
+    purged = await service.purge_expired()
 
     assert purged == 1
     assert await store.get(finished.id) is None
     assert await store.get(queued.id) is not None
+    assert finished.document_id is not None
+    assert await PostgresPayloadStore(engine).get(finished.document_id) is None
 
 
 async def test_payload_store_round_trips_bytes(engine: AsyncEngine) -> None:
@@ -120,18 +117,21 @@ async def test_payload_store_round_trips_bytes(engine: AsyncEngine) -> None:
 
     document_id = await store.put("paper.docx", payload)
 
-    assert document_id == f"doc_{content_digest(payload)[:16]}"
+    assert document_id.startswith("doc_")
+    assert len(document_id) == 36
     assert await store.get(document_id) == payload
 
 
-async def test_payload_store_deduplicates_identical_uploads(engine: AsyncEngine) -> None:
+async def test_payload_store_does_not_expose_document_equality(engine: AsyncEngine) -> None:
     store = PostgresPayloadStore(engine)
     payload = docx_bytes()
 
     first = await store.put("a.docx", payload)
     second = await store.put("b.docx", payload)
 
-    assert first == second
+    assert first != second
+    assert await store.get(first) == payload
+    assert await store.get(second) == payload
 
 
 async def test_payload_store_returns_none_for_unknown_document(engine: AsyncEngine) -> None:
@@ -141,12 +141,11 @@ async def test_payload_store_returns_none_for_unknown_document(engine: AsyncEngi
 async def test_identical_documents_in_separate_jobs_both_persist(engine: AsyncEngine) -> None:
     """Result ids derive from content, so two jobs on the same bytes must coexist."""
     store = PostgresJobStore(engine)
-    service, _, _ = build_job_service(store, PostgresPayloadStore(engine))
+    service, _, queue = build_job_service(store, PostgresPayloadStore(engine))
 
     first = await service.submit(docx_bytes(), "first.docx")
     second = await service.submit(docx_bytes(), "second.docx")
-    await _run_to_completion(service, first.id)
-    await _run_to_completion(service, second.id)
+    await queue.join()
 
     first_job = await store.get(first.id)
     second_job = await store.get(second.id)
@@ -218,3 +217,41 @@ async def test_recovery_fails_job_when_payload_is_missing(engine: AsyncEngine) -
     assert job.failure is not None
     assert job.failure.slug == "payload-unavailable"
     assert job.failure.status == 500
+
+
+async def test_recovery_fails_when_payload_row_is_missing(engine: AsyncEngine) -> None:
+    store = PostgresJobStore(engine)
+    payload_store = PostgresPayloadStore(engine)
+    payload = docx_bytes()
+    document_id = await payload_store.put("missing.docx", payload)
+    timestamp = datetime.now(UTC).isoformat()
+    await store.create(
+        ParseJob(
+            id="job_dangling_payload",
+            document_id=document_id,
+            filename="missing.docx",
+            byte_size=len(payload),
+            status=JobStatus.QUEUED,
+            stage=JobStage.QUEUED,
+            progress=0.0,
+            submitted_at=timestamp,
+            updated_at=timestamp,
+            result=None,
+            failure=None,
+        )
+    )
+    async with engine.begin() as conn:
+        await conn.execute(
+            delete(document_payloads).where(document_payloads.c.document_id == document_id)
+        )
+
+    service, _, queue = build_job_service(store, payload_store)
+    recovered = await service.recover_pending()
+    await queue.join()
+
+    job = await store.get("job_dangling_payload")
+    assert recovered == 1
+    assert job is not None
+    assert job.status is JobStatus.FAILED
+    assert job.failure is not None
+    assert job.failure.slug == "payload-unavailable"

@@ -24,6 +24,7 @@ def _submit(client: TestClient, name: str, payload: bytes, content_type: str) ->
     assert response.status_code == 202
     body = response.json()
     assert response.headers["location"] == f"/v1/documents/{body['id']}"
+    assert "document_id" not in body
     assert body["status"] == "queued"
     return str(body["id"])
 
@@ -104,13 +105,15 @@ def test_unsupported_binary_fails_the_job_with_typed_failure(client: TestClient)
     assert failure["status"] == 415
 
 
-def test_empty_file_fails_the_job(client: TestClient) -> None:
-    job_id = _submit(client, "empty.txt", b"", "text/plain")
+def test_empty_file_is_rejected_before_queueing(client: TestClient) -> None:
+    response = client.post(
+        "/v1/documents",
+        files={"file": ("empty.txt", b"", "text/plain")},
+    )
 
-    failure = _await_terminal(client, job_id)["failure"]
-
-    assert isinstance(failure, dict)
-    assert failure["slug"] == "unreadable-document"
+    assert response.status_code == 400
+    assert response.headers["content-type"].startswith(PROBLEM_CONTENT_TYPE)
+    assert response.json()["type"].endswith("/unreadable-document")
 
 
 def test_scanned_pdf_reports_ocr_hint_in_failure(client: TestClient) -> None:
@@ -123,14 +126,15 @@ def test_scanned_pdf_reports_ocr_hint_in_failure(client: TestClient) -> None:
     assert "OCR" in str(failure["detail"])
 
 
-def test_oversized_file_fails_the_job_with_limit(client: TestClient) -> None:
-    job_id = _submit(client, "huge.txt", b"x" * (10 * 1024 * 1024 + 1), "text/plain")
+def test_oversized_file_is_rejected_before_queueing(client: TestClient) -> None:
+    response = client.post(
+        "/v1/documents",
+        files={"file": ("huge.txt", b"x" * (10 * 1024 * 1024 + 1), "text/plain")},
+    )
 
-    failure = _await_terminal(client, job_id)["failure"]
-
-    assert isinstance(failure, dict)
-    assert failure["slug"] == "file-too-large"
-    assert failure["status"] == 413
+    assert response.status_code == 413
+    assert response.headers["content-type"].startswith(PROBLEM_CONTENT_TYPE)
+    assert response.json()["type"].endswith("/file-too-large")
 
 
 def test_unknown_job_returns_problem_json(client: TestClient) -> None:

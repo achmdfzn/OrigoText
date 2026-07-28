@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
@@ -231,17 +232,28 @@ class PostgresJobStore(JobStorePort):
                 return current
         return None
 
-    async def purge_expired(self) -> int:
+    async def purge_expired(self) -> list[str]:
         cutoff = datetime.now(UTC).timestamp() - self._ttl_seconds
         cutoff_at = datetime.fromtimestamp(cutoff, tz=UTC)
         async with self._engine.begin() as conn:
-            result = await conn.execute(
+            document_ids = list(
+                (
+                    await conn.execute(
+                        select(parse_jobs.c.document_id).where(
+                            parse_jobs.c.status.in_(("completed", "failed")),
+                            parse_jobs.c.updated_at < cutoff_at,
+                            parse_jobs.c.document_id.is_not(None),
+                        )
+                    )
+                ).scalars()
+            )
+            await conn.execute(
                 delete(parse_jobs).where(
                     parse_jobs.c.status.in_(("completed", "failed")),
                     parse_jobs.c.updated_at < cutoff_at,
                 )
             )
-        return int(result.rowcount or 0)
+        return [str(document_id) for document_id in document_ids]
 
 
 class PostgresPayloadStore(PayloadStorePort):
@@ -256,24 +268,18 @@ class PostgresPayloadStore(PayloadStorePort):
 
     async def put(self, filename: str, payload: bytes) -> str:
         digest = content_digest(payload)
-        document_id = f"doc_{digest[:16]}"
+        document_id = f"doc_{uuid.uuid4().hex}"
         async with self._engine.begin() as conn:
-            document_statement = pg_insert(documents).values(
-                id=document_id,
-                filename=filename,
-                byte_size=len(payload),
-                content_sha256=digest,
-            )
             await conn.execute(
-                document_statement.on_conflict_do_nothing(index_elements=[documents.c.id])
-            )
-            payload_statement = pg_insert(document_payloads).values(
-                document_id=document_id, payload=payload
-            )
-            await conn.execute(
-                payload_statement.on_conflict_do_nothing(
-                    index_elements=[document_payloads.c.document_id]
+                documents.insert().values(
+                    id=document_id,
+                    filename=filename,
+                    byte_size=len(payload),
+                    content_sha256=digest,
                 )
+            )
+            await conn.execute(
+                document_payloads.insert().values(document_id=document_id, payload=payload)
             )
         return document_id
 
@@ -287,3 +293,17 @@ class PostgresPayloadStore(PayloadStorePort):
                 )
             ).one_or_none()
         return bytes(row[0]) if row is not None else None
+
+    async def delete(self, document_id: str) -> None:
+        """Removes the payload and its document row.
+
+        Both deletes are explicit rather than relying on `ON DELETE CASCADE`,
+        which requires per-connection enforcement on some backends.
+        """
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                delete(document_payloads).where(
+                    document_payloads.c.document_id == document_id
+                )
+            )
+            await conn.execute(delete(documents).where(documents.c.id == document_id))

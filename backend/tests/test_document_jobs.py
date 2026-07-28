@@ -124,7 +124,7 @@ async def test_purge_expired_drops_only_terminal_jobs() -> None:
     await store.create(terminal)
     await store.save(terminal)
 
-    assert await store.purge_expired() == 1
+    assert await store.purge_expired() == [terminal.document_id]
     assert await store.get(terminal.id) is None
     assert await own_store.get(terminal.id) is not None
 

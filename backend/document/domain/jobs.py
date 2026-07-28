@@ -44,7 +44,7 @@ class ParseJob(BaseModel):
     model_config = {"frozen": True}
 
     id: str
-    document_id: str | None
+    document_id: str | None = Field(exclude=True)
     filename: str
     byte_size: Annotated[int, Field(ge=0)]
     status: JobStatus
@@ -79,6 +79,9 @@ class PayloadStorePort(ABC):
     @abstractmethod
     async def get(self, document_id: str) -> bytes | None: ...
 
+    @abstractmethod
+    async def delete(self, document_id: str) -> None: ...
+
 
 class JobStorePort(ABC):
     """Persistence for job lifecycle records."""
@@ -101,8 +104,8 @@ class JobStorePort(ABC):
         """Blocks until the job changes or the timeout elapses."""
 
     @abstractmethod
-    async def purge_expired(self) -> int:
-        """Drops terminal jobs past their retention window; returns how many."""
+    async def purge_expired(self) -> list[str]:
+        """Drops terminal jobs and returns their private document identifiers."""
 
 
 class JobQueuePort(ABC):

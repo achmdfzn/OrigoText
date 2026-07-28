@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
@@ -58,18 +58,18 @@ class InMemoryJobStore(JobStorePort):
             return None
         return await self.get(job_id)
 
-    async def purge_expired(self) -> int:
-        """Drops terminal jobs past their TTL so memory does not grow forever."""
+    async def purge_expired(self) -> list[str]:
+        """Drops terminal jobs past their TTL and returns payload identifiers."""
         async with self._lock:
             expired = [
-                job_id
-                for job_id, job in self._jobs.items()
+                job
+                for job in self._jobs.values()
                 if job.status.is_terminal and self._age_seconds(job) > self._ttl_seconds
             ]
-            for job_id in expired:
-                del self._jobs[job_id]
-                self._events.pop(job_id, None)
-        return len(expired)
+            for job in expired:
+                del self._jobs[job.id]
+                self._events.pop(job.id, None)
+        return [job.document_id for job in expired if job.document_id is not None]
 
     def _age_seconds(self, job: ParseJob) -> float:
         updated = datetime.fromisoformat(job.updated_at)
@@ -77,7 +77,7 @@ class InMemoryJobStore(JobStorePort):
 
 
 class InMemoryPayloadStore(PayloadStorePort):
-    """Content-addressed payload storage for local development and tests."""
+    """Private payload storage for local development and tests."""
 
     def __init__(self) -> None:
         self._payloads: dict[str, bytes] = {}
@@ -85,14 +85,18 @@ class InMemoryPayloadStore(PayloadStorePort):
 
     async def put(self, filename: str, payload: bytes) -> str:
         del filename
-        document_id = f"doc_{hashlib.sha256(payload).hexdigest()[:16]}"
+        document_id = f"doc_{uuid.uuid4().hex}"
         async with self._lock:
-            self._payloads.setdefault(document_id, payload)
+            self._payloads[document_id] = payload
         return document_id
 
     async def get(self, document_id: str) -> bytes | None:
         async with self._lock:
             return self._payloads.get(document_id)
+
+    async def delete(self, document_id: str) -> None:
+        async with self._lock:
+            self._payloads.pop(document_id, None)
 
 
 JobRunner = Callable[[str], Awaitable[None]]

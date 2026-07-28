@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib
+import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
@@ -22,7 +22,7 @@ from document.domain.jobs import (
     PayloadStorePort,
     progress_for,
 )
-from document.domain.models import ParseResult
+from document.domain.models import MAX_UPLOAD_BYTES, ParseResult
 from document.domain.ports import DocumentParsingPort
 from shared.logging import log_event
 
@@ -68,10 +68,15 @@ class DocumentJobService:
         self._queue = queue
 
     async def submit(self, payload: bytes, filename: str) -> ParseJob:
+        if not payload:
+            raise EmptyFileError(filename)
+        if len(payload) > MAX_UPLOAD_BYTES:
+            raise FileTooLargeError(len(payload), MAX_UPLOAD_BYTES)
+
         timestamp = _now()
         document_id = await self._payload_store.put(filename, payload)
         job = ParseJob(
-            id=f"job_{hashlib.sha256(f'{filename}:{timestamp}'.encode()).hexdigest()[:16]}",
+            id=f"job_{uuid.uuid4().hex}",
             document_id=document_id,
             filename=filename,
             byte_size=len(payload),
@@ -83,12 +88,22 @@ class DocumentJobService:
             result=None,
             failure=None,
         )
-        await self._store.create(job)
+        try:
+            await self._store.create(job)
+        except BaseException:
+            await self._payload_store.delete(document_id)
+            raise
         await self._queue.enqueue(job.id)
         return job
 
     async def get(self, job_id: str) -> ParseJob | None:
         return await self._store.get(job_id)
+
+    async def purge_expired(self) -> int:
+        document_ids = await self._store.purge_expired()
+        for document_id in document_ids:
+            await self._payload_store.delete(document_id)
+        return len(document_ids)
 
     async def recover_pending(self) -> int:
         jobs = await self._store.list_recoverable()

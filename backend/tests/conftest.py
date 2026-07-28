@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
 from shared.dependencies import get_rate_limiter
 from shared.settings import Settings, get_settings
+
+os.environ["ORIGOTEXT_DATABASE_URL"] = ""
+os.environ["ORIGOTEXT_MIGRATION_DATABASE_URL"] = ""
 
 VALID_KEY = "k" * 40
 OTHER_KEY = "j" * 40
@@ -40,11 +43,9 @@ def clean_rate_limiter() -> Iterator[None]:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    """An open client, pinned to development settings.
+    """An open client, pinned to development settings."""
+    from main import app
 
-    Settings are overridden rather than read from the environment so an ambient
-    ORIGOTEXT_* value in the developer's shell cannot change test outcomes.
-    """
     settings = Settings(environment="development", api_keys="", database_url="")
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
@@ -55,6 +56,8 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture
 def secured_client() -> Iterator[TestClient]:
     """A client whose app requires API keys and enforces tight rate limits."""
+    from main import app
+
     settings = Settings(
         environment="production",
         api_keys=f"{VALID_KEY},{OTHER_KEY}",
