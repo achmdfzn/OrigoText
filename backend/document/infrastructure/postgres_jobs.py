@@ -55,23 +55,22 @@ def _result_to_row(job_id: str, result: ParseResult) -> dict[str, object]:
     }
 
 
-def _row_to_result(row: object) -> ParseResult:
-    mapping = dict(row._mapping)  # type: ignore[attr-defined]
-    stored_id = str(mapping["id"])
+def _row_to_result(row: RowMapping) -> ParseResult:
+    stored_id = str(row["id"])
     return ParseResult(
         id=stored_id.rpartition(":")[2] or stored_id,
-        filename=str(mapping["filename"]),
-        document_format=DocumentFormat(mapping["document_format"]),
-        byte_size=int(mapping["byte_size"]),
-        parsed_at=_as_iso(mapping["parsed_at"]),
-        metadata=DocumentMetadata.model_validate(mapping["metadata_json"]),
-        text=str(mapping["text"]),
-        word_count=int(mapping["word_count"]),
-        character_count=int(mapping["character_count"]),
-        sections=list(mapping["sections"]),
-        chunks=list(mapping["chunks"]),
-        truncated=bool(mapping["truncated"]),
-        warnings=list(mapping["warnings"]),
+        filename=str(row["filename"]),
+        document_format=DocumentFormat(row["document_format"]),
+        byte_size=int(row["byte_size"]),
+        parsed_at=_as_iso(row["parsed_at"]),
+        metadata=DocumentMetadata.model_validate(row["metadata_json"]),
+        text=str(row["text"]),
+        word_count=int(row["word_count"]),
+        character_count=int(row["character_count"]),
+        sections=list(row["sections"]),
+        chunks=list(row["chunks"]),
+        truncated=bool(row["truncated"]),
+        warnings=list(row["warnings"]),
     )
 
 
@@ -102,25 +101,28 @@ class PostgresJobStore(JobStorePort):
                 await conn.execute(select(parse_results).where(parse_results.c.job_id == job_id))
             ).one_or_none()
 
-        mapping = dict(job_row._mapping)
+        mapping = job_row._mapping
         failure = mapping["failure"]
         return ParseJob(
             id=str(mapping["id"]),
+            document_id=(
+                str(mapping["document_id"]) if mapping["document_id"] is not None else None
+            ),
             filename=str(mapping["filename"]),
             byte_size=int(mapping["byte_size"]),
             status=JobStatus(mapping["status"]),
-            stage=mapping["stage"],
+            stage=JobStage(mapping["stage"]),
             progress=float(mapping["progress"]),
             submitted_at=_as_iso(mapping["submitted_at"]),
             updated_at=_as_iso(mapping["updated_at"]),
-            result=_row_to_result(result_row) if result_row is not None else None,
+            result=_row_to_result(result_row._mapping) if result_row is not None else None,
             failure=JobFailure.model_validate(failure) if failure is not None else None,
         )
-
 
     def _job_values(self, job: ParseJob) -> dict[str, object]:
         return {
             "id": job.id,
+            "document_id": job.document_id,
             "filename": job.filename,
             "byte_size": job.byte_size,
             "status": job.status.value,
@@ -140,7 +142,14 @@ class PostgresJobStore(JobStorePort):
                     index_elements=[parse_jobs.c.id],
                     set_={
                         key: statement.excluded[key]
-                        for key in ("status", "stage", "progress", "updated_at", "failure")
+                        for key in (
+                            "document_id",
+                            "status",
+                            "stage",
+                            "progress",
+                            "updated_at",
+                            "failure",
+                        )
                     },
                 )
             )
@@ -198,7 +207,7 @@ class PostgresJobStore(JobStorePort):
         return int(result.rowcount or 0)
 
 
-class PostgresPayloadStore:
+class PostgresPayloadStore(PayloadStorePort):
     """Stores uploaded bytes so a job no longer depends on process memory.
 
     Payloads live in the database for now; object storage is the eventual home

@@ -43,15 +43,11 @@ def build_parsing_service() -> DocumentParsingService:
 
 def build_job_service(
     store: JobStorePort | None = None,
+    payload_store: PayloadStorePort | None = None,
 ) -> tuple[DocumentJobService, JobStorePort, AsyncioJobQueue]:
-    """Wires the job service against a store and an in-process worker queue.
-
-    Passing a store selects durable persistence; omitting it keeps everything
-    in memory so local development needs no database. The store and queue are
-    returned so the application can purge expired jobs and drain in-flight work
-    during shutdown.
-    """
+    """Wires parsing jobs to interchangeable lifecycle and payload stores."""
     store = store if store is not None else InMemoryJobStore()
+    payload_store = payload_store if payload_store is not None else InMemoryPayloadStore()
     service_ref: list[DocumentJobService] = []
 
     async def mark_crashed(job_id: str, error: BaseException) -> None:

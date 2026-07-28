@@ -169,6 +169,25 @@ class DocumentJobService:
             )
         )
 
+    async def _fail_missing_payload(self, job: ParseJob) -> None:
+        await self._store.save(
+            job.model_copy(
+                update={
+                    "status": JobStatus.FAILED,
+                    "stage": JobStage.DONE,
+                    "progress": progress_for(JobStage.DONE),
+                    "updated_at": _now(),
+                    "failure": JobFailure(
+                        slug="payload-unavailable",
+                        title="Document could not be parsed",
+                        detail="The uploaded document is no longer available for parsing.",
+                        status=500,
+                    ),
+                }
+            )
+        )
+        log_event("document.job.payload_missing", job_id=job.id)
+
     async def stream(self, job_id: str) -> AsyncIterator[ParseJob]:
         """Yields the job on every change until it reaches a terminal state."""
         job = await self._store.get(job_id)
