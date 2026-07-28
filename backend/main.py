@@ -19,7 +19,7 @@ from document.interface.dependencies import (
 )
 from document.interface.router import router as document_router
 from plagiarism.interface.router import router as plagiarism_router
-from shared.database import build_engine
+from shared.database import build_engine, install_selector_loop_policy
 from shared.dependencies import get_rate_limiter
 from shared.errors import TransportError
 from shared.logging import log_event
@@ -28,13 +28,21 @@ from shared.settings import get_settings
 
 JOB_REAP_INTERVAL_SECONDS = 300
 
-settings = get_settings()
-settings.require_valid_configuration()
+_startup_settings = get_settings()
+_startup_settings.require_valid_configuration()
+
+if _startup_settings.has_database:
+    install_selector_loop_policy()
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Owns the job pipeline so workers live on the serving event loop."""
+    """Owns the job pipeline so workers live on the serving event loop.
+
+    Settings are resolved here rather than at import time so tests and
+    deployments can select storage without reloading the module.
+    """
+    settings = get_settings()
     engine = build_engine(settings.database_url) if settings.has_database else None
     store: JobStorePort | None = PostgresJobStore(engine) if engine is not None else None
     service, store, queue = build_job_service(store)
@@ -74,7 +82,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.parsed_allowed_origins,
+    allow_origins=_startup_settings.parsed_allowed_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Accept", "X-API-Key"],
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],

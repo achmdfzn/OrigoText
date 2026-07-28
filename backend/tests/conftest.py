@@ -20,6 +20,18 @@ SAMPLE_TEXT = (
 
 
 @pytest.fixture(autouse=True)
+def isolate_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keeps the suite off any real database.
+
+    Settings read `backend/.env`, which points at the live project. Tests must
+    never write there, so the URLs are cleared and the settings cache dropped.
+    """
+    monkeypatch.setenv("ORIGOTEXT_DATABASE_URL", "")
+    monkeypatch.setenv("ORIGOTEXT_MIGRATION_DATABASE_URL", "")
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def clean_rate_limiter() -> Iterator[None]:
     asyncio.run(get_rate_limiter().reset())
     yield
@@ -33,7 +45,7 @@ def client() -> Iterator[TestClient]:
     Settings are overridden rather than read from the environment so an ambient
     ORIGOTEXT_* value in the developer's shell cannot change test outcomes.
     """
-    settings = Settings(environment="development", api_keys="")
+    settings = Settings(environment="development", api_keys="", database_url="")
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
         yield client
@@ -46,6 +58,7 @@ def secured_client() -> Iterator[TestClient]:
     settings = Settings(
         environment="production",
         api_keys=f"{VALID_KEY},{OTHER_KEY}",
+        database_url="",
         rate_limit_per_minute=3,
         upload_rate_limit_per_minute=2,
     )

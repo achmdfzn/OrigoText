@@ -5,14 +5,16 @@ import asyncio
 import pytest
 
 from document.application.jobs import DocumentJobService
-from document.domain.jobs import JobStage, JobStatus, progress_for
+from document.domain.jobs import JobStage, JobStatus, JobStorePort, progress_for
 from document.infrastructure.factory import build_job_service
 from document.infrastructure.jobs import AsyncioJobQueue, InMemoryJobStore
 from tests.fixtures import docx_bytes
 
+Wiring = tuple[DocumentJobService, JobStorePort, AsyncioJobQueue]
+
 
 @pytest.fixture
-def wiring() -> tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue]:
+def wiring() -> Wiring:
     return build_job_service()
 
 
@@ -26,7 +28,7 @@ async def _drain(service: DocumentJobService, job_id: str) -> None:
 
 
 async def test_submit_returns_queued_job_immediately(
-    wiring: tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue],
+    wiring: Wiring,
 ) -> None:
     service, _, _ = wiring
 
@@ -41,7 +43,7 @@ async def test_submit_returns_queued_job_immediately(
 
 
 async def test_job_completes_with_parse_result(
-    wiring: tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue],
+    wiring: Wiring,
 ) -> None:
     service, _, _ = wiring
 
@@ -58,7 +60,7 @@ async def test_job_completes_with_parse_result(
 
 
 async def test_failed_parse_records_typed_failure(
-    wiring: tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue],
+    wiring: Wiring,
 ) -> None:
     service, _, _ = wiring
 
@@ -75,14 +77,14 @@ async def test_failed_parse_records_typed_failure(
 
 
 async def test_unknown_job_is_absent(
-    wiring: tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue],
+    wiring: Wiring,
 ) -> None:
     service, _, _ = wiring
     assert await service.get("job_missing") is None
 
 
 async def test_stream_yields_progress_and_ends_terminal(
-    wiring: tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue],
+    wiring: Wiring,
 ) -> None:
     service, _, _ = wiring
     submitted = await service.submit(docx_bytes(), "paper.docx")
@@ -96,7 +98,7 @@ async def test_stream_yields_progress_and_ends_terminal(
 
 
 async def test_stream_of_unknown_job_is_empty(
-    wiring: tuple[DocumentJobService, InMemoryJobStore, AsyncioJobQueue],
+    wiring: Wiring,
 ) -> None:
     service, _, _ = wiring
     assert [job async for job in service.stream("job_missing")] == []

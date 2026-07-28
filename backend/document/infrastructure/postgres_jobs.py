@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from document.domain.jobs import JobFailure, JobStatus, JobStorePort, ParseJob
 from document.domain.models import DocumentFormat, DocumentMetadata, ParseResult
@@ -49,8 +49,9 @@ def _result_to_row(job_id: str, result: ParseResult) -> dict[str, object]:
 
 def _row_to_result(row: object) -> ParseResult:
     mapping = dict(row._mapping)  # type: ignore[attr-defined]
+    stored_id = str(mapping["id"])
     return ParseResult(
-        id=str(mapping["id"]),
+        id=stored_id.rpartition(":")[2] or stored_id,
         filename=str(mapping["filename"]),
         document_format=DocumentFormat(mapping["document_format"]),
         byte_size=int(mapping["byte_size"]),
@@ -136,18 +137,30 @@ class PostgresJobStore(JobStorePort):
                 )
             )
             if job.result is not None:
-                result_values = _result_to_row(job.id, job.result)
-                result_statement = pg_insert(parse_results).values(result_values)
-                await conn.execute(
-                    result_statement.on_conflict_do_update(
-                        index_elements=[parse_results.c.job_id],
-                        set_={
-                            key: result_statement.excluded[key]
-                            for key in result_values
-                            if key not in {"id", "job_id"}
-                        },
-                    )
-                )
+                await self._upsert_result(conn, job.id, job.result)
+
+    async def _upsert_result(
+        self, conn: AsyncConnection, job_id: str, result: ParseResult
+    ) -> None:
+        """Writes the parse result, keyed by job rather than by content.
+
+        A result id is derived from the document's content hash, so two jobs
+        parsing identical bytes would collide on the primary key. Each job owns
+        exactly one row, so the row id is namespaced by job id instead.
+        """
+        values = _result_to_row(job_id, result)
+        values["id"] = f"{job_id}:{values['id']}"[:64]
+        statement = pg_insert(parse_results).values(values)
+        await conn.execute(
+            statement.on_conflict_do_update(
+                index_elements=[parse_results.c.job_id],
+                set_={
+                    key: statement.excluded[key]
+                    for key in values
+                    if key not in {"id", "job_id"}
+                },
+            )
+        )
 
     async def await_change(self, job_id: str, timeout_seconds: float) -> ParseJob | None:
         baseline = await self.get(job_id)
