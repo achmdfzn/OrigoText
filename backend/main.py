@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ai_detection.interface.router import router as ai_detection_router
 from document.domain.jobs import JobStorePort
 from document.infrastructure.factory import build_job_service
-from document.infrastructure.postgres_jobs import PostgresJobStore
+from document.infrastructure.postgres_jobs import PostgresJobStore, PostgresPayloadStore
 from document.interface.dependencies import (
     JOB_QUEUE_STATE,
     JOB_SERVICE_STATE,

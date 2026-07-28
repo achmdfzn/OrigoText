@@ -44,6 +44,7 @@ class ParseJob(BaseModel):
     model_config = {"frozen": True}
 
     id: str
+    document_id: str | None
     filename: str
     byte_size: Annotated[int, Field(ge=0)]
     status: JobStatus
@@ -69,12 +70,18 @@ def progress_for(stage: JobStage) -> float:
     return _STAGE_PROGRESS[stage]
 
 
-class JobStorePort(ABC):
-    """Persistence for job lifecycle records.
+class PayloadStorePort(ABC):
+    """Persistence for untrusted uploaded document bytes."""
 
-    The in-process adapter keeps jobs in memory; a Redis adapter satisfies the
-    same contract without touching the application layer.
-    """
+    @abstractmethod
+    async def put(self, filename: str, payload: bytes) -> str: ...
+
+    @abstractmethod
+    async def get(self, document_id: str) -> bytes | None: ...
+
+
+class JobStorePort(ABC):
+    """Persistence for job lifecycle records."""
 
     @abstractmethod
     async def create(self, job: ParseJob) -> None: ...
@@ -86,11 +93,12 @@ class JobStorePort(ABC):
     async def save(self, job: ParseJob) -> None: ...
 
     @abstractmethod
-    async def await_change(self, job_id: str, timeout_seconds: float) -> ParseJob | None:
-        """Blocks until the job changes or the timeout elapses.
+    async def list_recoverable(self) -> list[ParseJob]:
+        """Returns queued or interrupted jobs that need dispatch."""
 
-        Lets the transport stream progress without polling in a tight loop.
-        """
+    @abstractmethod
+    async def await_change(self, job_id: str, timeout_seconds: float) -> ParseJob | None:
+        """Blocks until the job changes or the timeout elapses."""
 
     @abstractmethod
     async def purge_expired(self) -> int:
@@ -98,11 +106,7 @@ class JobStorePort(ABC):
 
 
 class JobQueuePort(ABC):
-    """Dispatch for parse work.
-
-    The in-process adapter runs work on the running event loop; a Celery adapter
-    would enqueue a task instead.
-    """
+    """Dispatch for parse work using persistent job identifiers."""
 
     @abstractmethod
-    async def enqueue(self, job_id: str, payload: bytes, filename: str) -> None: ...
+    async def enqueue(self, job_id: str) -> None: ...

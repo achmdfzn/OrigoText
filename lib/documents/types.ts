@@ -71,6 +71,7 @@ export interface JobFailure {
 
 export interface ParseJob {
   readonly id: string;
+  readonly documentId: string | null;
   readonly filename: string;
   readonly byteSize: number;
   readonly status: JobStatus;

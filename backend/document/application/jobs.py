@@ -19,6 +19,7 @@ from document.domain.jobs import (
     JobStatus,
     JobStorePort,
     ParseJob,
+    PayloadStorePort,
     progress_for,
 )
 from document.domain.models import ParseResult
@@ -58,16 +59,20 @@ class DocumentJobService:
         self,
         parser: DocumentParsingPort,
         store: JobStorePort,
+        payload_store: PayloadStorePort,
         queue: JobQueuePort,
     ) -> None:
         self._parser = parser
         self._store = store
+        self._payload_store = payload_store
         self._queue = queue
 
     async def submit(self, payload: bytes, filename: str) -> ParseJob:
         timestamp = _now()
+        document_id = await self._payload_store.put(filename, payload)
         job = ParseJob(
             id=f"job_{hashlib.sha256(f'{filename}:{timestamp}'.encode()).hexdigest()[:16]}",
+            document_id=document_id,
             filename=filename,
             byte_size=len(payload),
             status=JobStatus.QUEUED,
@@ -79,16 +84,47 @@ class DocumentJobService:
             failure=None,
         )
         await self._store.create(job)
-        await self._queue.enqueue(job.id, payload, filename)
+        await self._queue.enqueue(job.id)
         return job
 
     async def get(self, job_id: str) -> ParseJob | None:
         return await self._store.get(job_id)
 
-    async def run(self, job_id: str, payload: bytes, filename: str) -> None:
-        """Executes a queued job, recording each stage as it advances."""
+    async def recover_pending(self) -> int:
+        jobs = await self._store.list_recoverable()
+        recovered = 0
+        for job in jobs:
+            if job.document_id is None:
+                await self._fail_missing_payload(job)
+                continue
+            queued = job.model_copy(
+                update={
+                    "status": JobStatus.QUEUED,
+                    "stage": JobStage.QUEUED,
+                    "progress": progress_for(JobStage.QUEUED),
+                    "updated_at": _now(),
+                    "failure": None,
+                }
+            )
+            await self._store.save(queued)
+            await self._queue.enqueue(queued.id)
+            recovered += 1
+        if recovered > 0:
+            log_event("document.jobs.recovered", count=recovered)
+        return recovered
+
+    async def run(self, job_id: str) -> None:
+        """Executes a queued job after hydrating its persisted payload."""
         job = await self._store.get(job_id)
-        if job is None:
+        if job is None or job.status.is_terminal:
+            return
+        if job.document_id is None:
+            await self._fail_missing_payload(job)
+            return
+
+        payload = await self._payload_store.get(job.document_id)
+        if payload is None:
+            await self._fail_missing_payload(job)
             return
 
         for stage in (JobStage.DETECTING, JobStage.EXTRACTING, JobStage.SANITIZING):
@@ -103,7 +139,10 @@ class DocumentJobService:
             await self._store.save(job)
 
         try:
-            result: ParseResult = await self._parser.parse(payload=payload, filename=filename)
+            result: ParseResult = await self._parser.parse(
+                payload=payload,
+                filename=job.filename,
+            )
         except DocumentError as error:
             await self._store.save(
                 job.model_copy(

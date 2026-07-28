@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
-from document.domain.jobs import JobQueuePort, JobStorePort, ParseJob
+from document.domain.jobs import JobQueuePort, JobStorePort, ParseJob, PayloadStorePort
 
 DEFAULT_JOB_TTL_SECONDS = 900.0
 DEFAULT_WORKER_COUNT = 2
@@ -41,6 +42,10 @@ class InMemoryJobStore(JobStorePort):
             event.set()
             event.clear()
 
+    async def list_recoverable(self) -> list[ParseJob]:
+        async with self._lock:
+            return [job for job in self._jobs.values() if not job.status.is_terminal]
+
     async def await_change(self, job_id: str, timeout_seconds: float) -> ParseJob | None:
         async with self._lock:
             event = self._events.get(job_id)
@@ -71,7 +76,26 @@ class InMemoryJobStore(JobStorePort):
         return (datetime.now(UTC) - updated).total_seconds()
 
 
-JobRunner = Callable[[str, bytes, str], Awaitable[None]]
+class InMemoryPayloadStore(PayloadStorePort):
+    """Content-addressed payload storage for local development and tests."""
+
+    def __init__(self) -> None:
+        self._payloads: dict[str, bytes] = {}
+        self._lock = asyncio.Lock()
+
+    async def put(self, filename: str, payload: bytes) -> str:
+        del filename
+        document_id = f"doc_{hashlib.sha256(payload).hexdigest()[:16]}"
+        async with self._lock:
+            self._payloads.setdefault(document_id, payload)
+        return document_id
+
+    async def get(self, document_id: str) -> bytes | None:
+        async with self._lock:
+            return self._payloads.get(document_id)
+
+
+JobRunner = Callable[[str], Awaitable[None]]
 
 
 class AsyncioJobQueue(JobQueuePort):
@@ -90,15 +114,15 @@ class AsyncioJobQueue(JobQueuePort):
         self._worker_count = worker_count
         self._on_unexpected_error = on_unexpected_error
         self._runner: JobRunner | None = None
-        self._queue: asyncio.Queue[tuple[str, bytes, str]] = asyncio.Queue()
+        self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._workers: list[asyncio.Task[None]] = []
 
     def set_runner(self, runner: JobRunner) -> None:
         self._runner = runner
 
-    async def enqueue(self, job_id: str, payload: bytes, filename: str) -> None:
+    async def enqueue(self, job_id: str) -> None:
         self._ensure_workers()
-        await self._queue.put((job_id, payload, filename))
+        await self._queue.put(job_id)
 
     def _ensure_workers(self) -> None:
         self._workers = [worker for worker in self._workers if not worker.done()]
@@ -107,11 +131,11 @@ class AsyncioJobQueue(JobQueuePort):
 
     async def _work(self) -> None:
         while True:
-            job_id, payload, filename = await self._queue.get()
+            job_id = await self._queue.get()
             try:
                 runner = self._runner
                 if runner is not None:
-                    await runner(job_id, payload, filename)
+                    await runner(job_id)
             except Exception as error:
                 if self._on_unexpected_error is not None:
                     await self._on_unexpected_error(job_id, error)

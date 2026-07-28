@@ -6,9 +6,17 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from document.domain.jobs import JobFailure, JobStatus, JobStorePort, ParseJob
+from document.domain.jobs import (
+    JobFailure,
+    JobStage,
+    JobStatus,
+    JobStorePort,
+    ParseJob,
+    PayloadStorePort,
+)
 from document.domain.models import DocumentFormat, DocumentMetadata, ParseResult
 from shared.schema import document_payloads, documents, parse_jobs, parse_results
 

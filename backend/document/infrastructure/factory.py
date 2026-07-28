@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from document.application.jobs import DocumentJobService
 from document.application.service import DocumentParsingService
-from document.domain.jobs import JobStorePort
+from document.domain.jobs import JobStorePort, PayloadStorePort
 from document.domain.ports import TextExtractorPort
 from document.infrastructure.detection import ContentSniffingDetector
-from document.infrastructure.jobs import AsyncioJobQueue, InMemoryJobStore
+from document.infrastructure.jobs import AsyncioJobQueue, InMemoryJobStore, InMemoryPayloadStore
 from document.infrastructure.markup_extractors import (
     EpubExtractor,
     HtmlExtractor,

@@ -188,6 +188,7 @@ export interface WireJobFailure {
 
 export interface WireParseJob {
   readonly id: string;
+  readonly document_id: string | null;
   readonly filename: string;
   readonly byte_size: number;
   readonly status: WireJobStatus;
