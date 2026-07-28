@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from document.application.jobs import DocumentJobService
-from document.domain.jobs import JobStatus
+from document.domain.jobs import JobStage, JobStatus, ParseJob
 from document.infrastructure.factory import build_job_service
 from document.infrastructure.postgres_jobs import (
     PostgresJobStore,
@@ -89,7 +90,20 @@ async def test_purge_expired_removes_only_terminal_jobs(engine: AsyncEngine) -> 
     store = PostgresJobStore(engine, ttl_seconds=-1.0)
     service, _, _ = build_job_service(store)
 
-    queued = await service.submit(docx_bytes(), "queued.docx")
+    queued = ParseJob(
+        id="job_still_queued",
+        filename="queued.docx",
+        byte_size=10,
+        status=JobStatus.QUEUED,
+        stage=JobStage.QUEUED,
+        progress=0.0,
+        submitted_at=datetime.now(UTC).isoformat(),
+        updated_at=datetime.now(UTC).isoformat(),
+        result=None,
+        failure=None,
+    )
+    await store.create(queued)
+
     finished = await service.submit(docx_bytes(), "finished.docx")
     await _run_to_completion(service, finished.id)
 
