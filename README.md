@@ -111,10 +111,11 @@ Nine input formats parse: PDF, DOCX, ODT, EPUB, HTML, Markdown, LaTeX, RTF, TXT.
 
 - Rate limit counters live in process memory, so they are per-instance. Horizontal scaling needs a Redis adapter.
 - The BFF uses one deployment key for FastAPI. Per-user identity and quotas still need JWT/OAuth propagated through the proxy.
-- Jobs live in process memory and run on an in-process worker pool, so they are per-instance and lost on restart. Redis plus Celery would satisfy the same `JobStorePort` and `JobQueuePort`.
-- Uploaded bytes are held in memory while a job runs; large files need object storage.
+- With `ORIGOTEXT_DATABASE_URL`, jobs, parse results, and uploaded bytes persist in PostgreSQL and queued/running jobs resume after a single backend process restarts. The in-process queue has no distributed lease, so horizontal worker scaling still needs Redis/Celery or RabbitMQ.
+- Without a database URL, jobs and uploaded bytes intentionally fall back to process memory for zero-config local development.
+- Uploaded bytes currently live in PostgreSQL. Private object storage with signed access and retention controls should replace the interim `document_payloads` adapter before production.
 - The citations and search screens render sample data; their backend contexts do not exist yet.
-- No OCR, no persistence — the corpus is in-memory and results are not stored.
+- OCR is not wired up, and plagiarism/AI-detection reports are not persisted yet.
 
 ## AI detection
 

@@ -217,6 +217,7 @@ class PostgresJobStore(JobStorePort):
         return jobs
 
     async def await_change(self, job_id: str, timeout_seconds: float) -> ParseJob | None:
+        baseline = await self.get(job_id)
         if baseline is None:
             return None
 
