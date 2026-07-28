@@ -62,8 +62,8 @@ def test_upload_scope_has_its_own_tighter_budget(secured_client: TestClient) -> 
         )
         return int(response.status_code)
 
-    assert upload() == 201
-    assert upload() == 201
+    assert upload() == 202
+    assert upload() == 202
     assert upload() == 429
 
 

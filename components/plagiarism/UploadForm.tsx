@@ -11,7 +11,8 @@ import {
   documentFormatLabel,
   formatBytes,
 } from "@/lib/documents/formats";
-import type { ParseResult } from "@/lib/documents/types";
+import { STAGE_LABELS } from "@/lib/documents/formats";
+import type { JobStage, ParseResult } from "@/lib/documents/types";
 
 interface UploadFormProps {
   readonly onSubmit: (text: string) => void | Promise<void>;
@@ -26,6 +27,8 @@ export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
   const [dragging, setDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [stage, setStage] = useState<JobStage | null>(null);
+  const [progress, setProgress] = useState(0);
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef<AbortController | null>(null);
@@ -62,9 +65,19 @@ export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
     const controller = new AbortController();
     requestRef.current = controller;
     setParsing(true);
+    setStage("queued");
+    setProgress(0);
 
     try {
-      const result = await parseDocument({ file, signal: controller.signal });
+      const result = await parseDocument({
+        file,
+        signal: controller.signal,
+        onProgress: (job) => {
+          if (controller.signal.aborted) return;
+          setStage(job.stage);
+          setProgress(job.progress);
+        },
+      });
       if (controller.signal.aborted) return;
       setParsed(result);
       setText(result.text.slice(0, MAX_CHARS));
@@ -74,6 +87,7 @@ export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
       setParsing(false);
+      setStage(null);
     }
   }
 
@@ -127,7 +141,7 @@ export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
         </svg>
         <span className="text-body-sm text-fg-muted">
           {parsing ? (
-            "Extracting text…"
+            `${stage !== null ? STAGE_LABELS[stage] : "Working"}…`
           ) : (
             <>
               Drag &amp; drop a file, or{" "}
@@ -135,6 +149,22 @@ export function UploadForm({ onSubmit, error = null }: UploadFormProps) {
             </>
           )}
         </span>
+
+        {parsing ? (
+          <div
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress * 100)}
+            aria-label="Document parsing progress"
+            className="mt-1 h-1.5 w-40 overflow-hidden rounded-full bg-bg-muted"
+          >
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }}
+            />
+          </div>
+        ) : null}
         <span className="text-caption text-fg-muted">
           PDF, DOCX, ODT, EPUB, TXT, RTF, HTML, MD, TEX · max{" "}
           {formatBytes(MAX_UPLOAD_BYTES)}

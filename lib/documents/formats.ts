@@ -1,4 +1,4 @@
-import type { DocumentFormat } from "./types";
+import type { DocumentFormat, JobStage } from "./types";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -43,3 +43,12 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+export const STAGE_LABELS: Readonly<Record<JobStage, string>> = {
+  queued: "Queued",
+  detecting_format: "Detecting format",
+  extracting_text: "Extracting text",
+  sanitizing: "Sanitizing content",
+  structuring: "Building sections",
+  done: "Finished",
+};

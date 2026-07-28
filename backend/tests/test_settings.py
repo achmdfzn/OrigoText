@@ -5,6 +5,19 @@ import pytest
 from shared.settings import Settings
 
 
+@pytest.fixture(autouse=True)
+def isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings read the process environment, so clear it to keep tests hermetic."""
+    for name in (
+        "ORIGOTEXT_ENVIRONMENT",
+        "ORIGOTEXT_API_KEYS",
+        "ORIGOTEXT_ALLOWED_ORIGINS",
+        "ORIGOTEXT_RATE_LIMIT_PER_MINUTE",
+        "ORIGOTEXT_UPLOAD_RATE_LIMIT_PER_MINUTE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_production_without_keys_fails_startup() -> None:
     settings = Settings(environment="production", api_keys="")
 

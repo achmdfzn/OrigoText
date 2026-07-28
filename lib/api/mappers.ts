@@ -8,13 +8,14 @@ import type {
   WireDetectionResult,
   WireMatchKind,
   WireMatchedSpan,
+  WireParseJob,
   WireParseResult,
   WirePlagiarismReport,
   WireSourceMatch,
   WireSourceRef,
   WireVerdict,
 } from "./wire";
-import type { ParseResult } from "@/lib/documents/types";
+import type { ParseJob, ParseResult } from "@/lib/documents/types";
 import type {
   MatchKind,
   MatchedSpan,
@@ -178,5 +179,28 @@ export function toParseResult(wire: WireParseResult): ParseResult {
     })),
     truncated: wire.truncated,
     warnings: wire.warnings,
+  };
+}
+
+export function toParseJob(wire: WireParseJob): ParseJob {
+  return {
+    id: wire.id,
+    filename: wire.filename,
+    byteSize: wire.byte_size,
+    status: wire.status,
+    stage: wire.stage,
+    progress: wire.progress,
+    submittedAt: wire.submitted_at,
+    updatedAt: wire.updated_at,
+    result: wire.result !== null ? toParseResult(wire.result) : null,
+    failure:
+      wire.failure !== null
+        ? {
+            slug: wire.failure.slug,
+            title: wire.failure.title,
+            detail: wire.failure.detail,
+            status: wire.failure.status,
+          }
+        : null,
   };
 }

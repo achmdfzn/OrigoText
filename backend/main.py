@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -7,22 +9,53 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_detection.interface.router import router as ai_detection_router
+from document.infrastructure.factory import build_job_service
+from document.infrastructure.jobs import InMemoryJobStore
+from document.interface.dependencies import (
+    JOB_QUEUE_STATE,
+    JOB_SERVICE_STATE,
+    JOB_STORE_STATE,
+)
 from document.interface.router import router as document_router
 from plagiarism.interface.router import router as plagiarism_router
+from shared.dependencies import get_rate_limiter
 from shared.errors import TransportError
+from shared.logging import log_event
 from shared.problem import transport_error_handler
 from shared.settings import get_settings
+
+JOB_REAP_INTERVAL_SECONDS = 300
 
 settings = get_settings()
 settings.require_valid_configuration()
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    yield
-    from shared.dependencies import get_rate_limiter
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Owns the job pipeline so workers live on the serving event loop."""
+    service, store, queue = build_job_service()
+    setattr(application.state, JOB_SERVICE_STATE, service)
+    setattr(application.state, JOB_STORE_STATE, store)
+    setattr(application.state, JOB_QUEUE_STATE, queue)
 
-    await get_rate_limiter().reset()
+    reaper = asyncio.create_task(_reap_expired_jobs(store))
+    try:
+        yield
+    finally:
+        reaper.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await reaper
+        await queue.shutdown()
+        await get_rate_limiter().reset()
+
+
+async def _reap_expired_jobs(store: InMemoryJobStore) -> None:
+    """Periodically drops terminal jobs so the in-memory store stays bounded."""
+    while True:
+        await asyncio.sleep(JOB_REAP_INTERVAL_SECONDS)
+        purged = await store.purge_expired()
+        if purged > 0:
+            log_event("document.jobs.purged", count=purged)
 
 
 app = FastAPI(

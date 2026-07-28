@@ -29,7 +29,9 @@ bun install
 bun dev
 ```
 
-Open `http://localhost:3000`. It redirects to `/plagiarism`. `NEXT_PUBLIC_API_BASE_URL` defaults to `http://localhost:8000`, so no env file is needed for the default setup.
+Open `http://localhost:3000`. It redirects to `/plagiarism`. Browser requests use the same-origin Next.js BFF under `/api`; the API key and FastAPI URL stay server-only.
+
+The default BFF target is `http://localhost:8000`, so no env file is needed for the default development setup.
 
 To override anything, copy the examples:
 
@@ -49,14 +51,14 @@ export ORIGOTEXT_API_KEYS=$(python -c "import secrets; print(secrets.token_urlsa
 python -m uvicorn main:app --port 8000
 ```
 
-Put the same key in `.env.local` as `NEXT_PUBLIC_API_KEY` and restart `bun dev`. Without it every request returns 401.
+Put the same key in `.env.local` as `ORIGOTEXT_API_KEY`, set `ORIGOTEXT_API_BASE_URL=http://localhost:8000`, and restart `bun dev`. The values are read only by Next.js Route Handlers and never enter the browser bundle. Without a matching key, FastAPI returns 401 through the BFF.
 
 ## Verification
 
 ```bash
 cd backend && python -m pytest tests -q
 cd backend && python -m ruff check . && python -m mypy --strict .
-bun run typecheck && bun run lint && bun run build
+bun run typecheck && bun run lint && bun test && bun run build
 ```
 
 After changing any request or response model, regenerate the committed spec:
@@ -69,8 +71,9 @@ cd backend && python scripts/export_openapi.py
 
 ```
 app/                 App Router routes; (dashboard) group wraps the four screens
+app/api/              Next.js BFF; injects server-only backend credentials
 components/          UI per feature, plus shared primitives in ui/
-lib/                 Types, pure logic, and the API boundary in lib/api/
+lib/                 Types, pure logic, browser API client, server proxy
 backend/
   document/          upload, sanitization, parsing, chunking
   plagiarism/        lexical similarity against the licensed corpus
@@ -85,22 +88,31 @@ Each backend context follows `domain ← application ← infrastructure/interfac
 
 ## API
 
-| Method | Path                       | Purpose                                                  |
-| ------ | -------------------------- | -------------------------------------------------------- |
-| `POST` | `/v1/documents`            | Upload and parse a document into sanitized, chunked text |
-| `POST` | `/v1/plagiarism/checks`    | Similarity report with matched sources and spans         |
-| `POST` | `/v1/ai-detection/analyze` | AI-likelihood estimate with per-sentence breakdown       |
-| `GET`  | `/healthz`, `/readyz`      | Liveness and readiness                                   |
+The browser only ever calls the same-origin BFF. Each route forwards to FastAPI after attaching the server-only key.
 
-Authenticate with `X-API-Key`. Errors are `application/problem+json`. Analysis endpoints allow 30 requests/minute per key, uploads 10/minute, both reported via `X-RateLimit-*` headers and `Retry-After` on 429.
+| Browser calls                    | BFF forwards to                 | Purpose                                              |
+| -------------------------------- | ------------------------------- | ---------------------------------------------------- |
+| `POST /api/documents`            | `POST /v1/documents`            | Queue a document for parsing; returns 202 with a job |
+| `GET /api/documents/{id}`        | `GET /v1/documents/{id}`        | Job status, plus the parse result once complete      |
+| `GET /api/documents/{id}/stream` | `GET /v1/documents/{id}/stream` | Realtime parse progress as server-sent events        |
+| `POST /api/plagiarism/checks`    | `POST /v1/plagiarism/checks`    | Similarity report with matched sources and spans     |
+| `POST /api/ai-detection/analyze` | `POST /v1/ai-detection/analyze` | AI-likelihood estimate with per-sentence breakdown   |
+| —                                | `GET /healthz`, `/readyz`       | Liveness and readiness                               |
 
-Nine input formats parse: PDF, DOCX, ODT, EPUB, HTML, Markdown, LaTeX, RTF, TXT. Format is resolved from magic bytes, not from the client's declared content type. Scanned PDFs with no text layer return 422 rather than empty output — OCR is not wired up yet.
+FastAPI authenticates with `X-API-Key`. Errors stay `application/problem+json` end to end. Analysis endpoints allow 30 requests/minute per key, uploads 10/minute, surfaced to the browser through forwarded `X-RateLimit-*` headers and `Retry-After` on 429.
+
+The proxy rejects wrong media types (415) and oversized bodies (413) before reaching FastAPI, and converts an unreachable or slow backend into 502 and 504 instead of leaking internal errors.
+
+Uploads are asynchronous: `POST /api/documents` returns as soon as the job is queued, so a slow document never occupies a request handler. Progress streams over server-sent events, with polling as a fallback if the stream drops. Because the queueing request has already returned, parse failures land on the job itself (`status: "failed"` with a typed `failure`) rather than as a transport error.
+
+Nine input formats parse: PDF, DOCX, ODT, EPUB, HTML, Markdown, LaTeX, RTF, TXT. Format is resolved from magic bytes, not from the client's declared content type. Scanned PDFs with no text layer fail the job with an OCR hint rather than returning empty output — OCR is not wired up yet.
 
 ## Known gaps
 
 - Rate limit counters live in process memory, so they are per-instance. Horizontal scaling needs a Redis adapter.
-- `NEXT_PUBLIC_API_KEY` ships to the browser. It gates the deployment, not individual users; per-user auth needs a server-side proxy plus JWT/OAuth.
-- Parsing runs in a worker thread inside the request. Large files should move to a queue, and `POST /v1/documents` should return a job id as described in `PRD.md §11`.
+- The BFF uses one deployment key for FastAPI. Per-user identity and quotas still need JWT/OAuth propagated through the proxy.
+- Jobs live in process memory and run on an in-process worker pool, so they are per-instance and lost on restart. Redis plus Celery would satisfy the same `JobStorePort` and `JobQueuePort`.
+- Uploaded bytes are held in memory while a job runs; large files need object storage.
 - The citations and search screens render sample data; their backend contexts do not exist yet.
 - No OCR, no persistence — the corpus is in-memory and results are not stored.
 

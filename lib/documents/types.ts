@@ -51,3 +51,37 @@ export interface ParseResult {
   readonly truncated: boolean;
   readonly warnings: ReadonlyArray<string>;
 }
+
+export type JobStatus = "queued" | "running" | "completed" | "failed";
+
+export type JobStage =
+  | "queued"
+  | "detecting_format"
+  | "extracting_text"
+  | "sanitizing"
+  | "structuring"
+  | "done";
+
+export interface JobFailure {
+  readonly slug: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly status: number;
+}
+
+export interface ParseJob {
+  readonly id: string;
+  readonly filename: string;
+  readonly byteSize: number;
+  readonly status: JobStatus;
+  readonly stage: JobStage;
+  readonly progress: number;
+  readonly submittedAt: string;
+  readonly updatedAt: string;
+  readonly result: ParseResult | null;
+  readonly failure: JobFailure | null;
+}
+
+export function isTerminal(status: JobStatus): boolean {
+  return status === "completed" || status === "failed";
+}

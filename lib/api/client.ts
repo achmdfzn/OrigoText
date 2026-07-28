@@ -4,19 +4,17 @@
  * into an `ApiError` so callers never handle raw fetch rejections.
  */
 
-import { DEFAULT_TIMEOUT_MS, apiBaseUrl, authHeaders } from "./config";
+import { DEFAULT_TIMEOUT_MS } from "./config";
 import { ApiContractError, ApiError, RateLimitError } from "./errors";
-import { toDetectionResult, toParseResult, toPlagiarismReport } from "./mappers";
+import { toDetectionResult, toPlagiarismReport } from "./mappers";
 import type {
   WireDetectionResult,
-  WireParseResult,
   WirePlagiarismReport,
   WireProblem,
   WireValidationError,
 } from "./wire";
 import type { PlagiarismReport } from "@/lib/plagiarism/types";
 import type { DetectionResult } from "@/lib/ai-detection/types";
-import type { ParseResult } from "@/lib/documents/types";
 
 export interface AnalysisRequest {
   readonly text: string;
@@ -123,12 +121,11 @@ async function postJson<TWire>(
 
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}${path}`, {
+    response = await fetch(path, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...authHeaders(),
       },
       body: JSON.stringify(body),
       signal: timeout.signal,
@@ -166,7 +163,7 @@ export async function checkPlagiarism({
   signal,
 }: AnalysisRequest): Promise<PlagiarismReport> {
   const wire = await postJson<WirePlagiarismReport>(
-    "/v1/plagiarism/checks",
+    "/api/plagiarism/checks",
     { text, document_title: documentTitle ?? "Untitled" },
     signal,
   );
@@ -179,60 +176,11 @@ export async function detectAiText({
   signal,
 }: AnalysisRequest): Promise<DetectionResult> {
   const wire = await postJson<WireDetectionResult>(
-    "/v1/ai-detection/analyze",
+    "/api/ai-detection/analyze",
     { text, document_title: documentTitle ?? "Untitled" },
     signal,
   );
   return toDetectionResult(wire);
 }
 
-export interface ParseDocumentRequest {
-  readonly file: File;
-  readonly signal?: AbortSignal;
-}
-
-/**
- * Uploads a file for server-side parsing. The browser never interprets the file
- * itself: binary formats such as PDF and DOCX require real extraction, and the
- * backend also sanitizes the result before it reaches any prompt.
- */
-export async function parseDocument({
-  file,
-  signal,
-}: ParseDocumentRequest): Promise<ParseResult> {
-  const form = new FormData();
-  form.append("file", file, file.name);
-
-  const timeout = withTimeout(signal);
-
-  let response: Response;
-  try {
-    response = await fetch(`${apiBaseUrl()}/v1/documents`, {
-      method: "POST",
-      headers: { Accept: "application/json", ...authHeaders() },
-      body: form,
-      signal: timeout.signal,
-      cache: "no-store",
-    });
-  } catch {
-    if (timeout.timedOut()) {
-      throw new ApiError("timeout", "Parsing the document took too long.");
-    }
-    if (signal?.aborted === true) {
-      throw new ApiError("aborted", "The upload was cancelled.");
-    }
-    throw new ApiError("network", "Could not reach the document service.");
-  } finally {
-    timeout.dispose();
-  }
-
-  if (!response.ok) {
-    throw await failureFor(response, "Document service");
-  }
-
-  try {
-    return toParseResult((await response.json()) as WireParseResult);
-  } catch {
-    throw new ApiContractError("Document service returned a malformed JSON body.");
-  }
-}
+export { getDocumentJob, parseDocument, submitDocument } from "./documents";

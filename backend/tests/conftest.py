@@ -28,8 +28,15 @@ def clean_rate_limiter() -> Iterator[None]:
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    app.dependency_overrides.clear()
-    yield TestClient(app)
+    """An open client, pinned to development settings.
+
+    Settings are overridden rather than read from the environment so an ambient
+    ORIGOTEXT_* value in the developer's shell cannot change test outcomes.
+    """
+    settings = Settings(environment="development", api_keys="")
+    app.dependency_overrides[get_settings] = lambda: settings
+    with TestClient(app) as client:
+        yield client
     app.dependency_overrides.clear()
 
 
@@ -43,5 +50,6 @@ def secured_client() -> Iterator[TestClient]:
         upload_rate_limit_per_minute=2,
     )
     app.dependency_overrides[get_settings] = lambda: settings
-    yield TestClient(app, raise_server_exceptions=False)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
     app.dependency_overrides.clear()

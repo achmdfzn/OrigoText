@@ -23,12 +23,19 @@ def test_openapi_schema_is_served(client: TestClient) -> None:
 
 
 def test_full_pipeline_upload_check_detect(client: TestClient) -> None:
-    parsed = client.post(
+    submitted = client.post(
         "/v1/documents",
         files={"file": ("submission.txt", SAMPLE_TEXT.encode(), "text/plain")},
     )
-    assert parsed.status_code == 201
-    text = parsed.json()["text"]
+    assert submitted.status_code == 202
+    job_id = submitted.json()["id"]
+
+    for _ in range(200):
+        job = client.get(f"/v1/documents/{job_id}").json()
+        if job["status"] in {"completed", "failed"}:
+            break
+    assert job["status"] == "completed"
+    text = job["result"]["text"]
 
     report = client.post("/v1/plagiarism/checks", json={"text": text})
     assert report.status_code == 200

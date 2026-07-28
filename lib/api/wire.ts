@@ -168,3 +168,33 @@ export interface WireProblem {
   readonly detail: string;
   readonly instance?: string | null;
 }
+
+export type WireJobStatus = "queued" | "running" | "completed" | "failed";
+
+export type WireJobStage =
+  | "queued"
+  | "detecting_format"
+  | "extracting_text"
+  | "sanitizing"
+  | "structuring"
+  | "done";
+
+export interface WireJobFailure {
+  readonly slug: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly status: number;
+}
+
+export interface WireParseJob {
+  readonly id: string;
+  readonly filename: string;
+  readonly byte_size: number;
+  readonly status: WireJobStatus;
+  readonly stage: WireJobStage;
+  readonly progress: number;
+  readonly submitted_at: string;
+  readonly updated_at: string;
+  readonly result: WireParseResult | null;
+  readonly failure: WireJobFailure | null;
+}
